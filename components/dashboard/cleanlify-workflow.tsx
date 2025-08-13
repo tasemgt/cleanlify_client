@@ -22,7 +22,7 @@ export function CleanlifyWorkflow() {
   const [uploadedFile, setUploadedFile] = useState<File | null>(null)
   const [columns, setColumns] = useState<ColumnInfo[]>([])
   const [selectedColumns, setSelectedColumns] = useState<string[]>([])
-  const [selectedDomain, setSelectedDomain] = useState<string>("")
+  // const [selectedDomain, setSelectedDomain] = useState<string>("")
   const [cleaningData, setCleaningData] = useState<CleaningData>({})
   const [rawData, setRawData] = useState<any[]>([])
   const [fileType, setFileType] = useState<string>("")
@@ -37,10 +37,10 @@ export function CleanlifyWorkflow() {
     try {
       const formData = new FormData()
       formData.append("file", file)
-      formData.append("fileType", uploadedFileType)
+      // formData.append("fileType", uploadedFileType)
 
       // Mock API call - replace with your actual API endpoint
-      const response = await fetch("/api/upload-file", {
+      const response = await fetch("http://localhost:8080/analyze?limit=all", {
         method: "POST",
         body: formData,
       })
@@ -50,8 +50,11 @@ export function CleanlifyWorkflow() {
       }
 
       const data = await response.json()
+
+      console.log("File processed successfully:", data.rawData);
+
       setColumns(data.columns)
-      setRawData(data.data)
+      setRawData(data.rawData)
       setCurrentStep(2)
     } catch (error) {
       console.error("Upload failed:", error)
@@ -59,38 +62,56 @@ export function CleanlifyWorkflow() {
     }
   }
 
-  const handlePreviewContinue = async (selectedCols: string[], domain: string) => {
+  // const handlePreviewContinue = async (selectedCols: string[]) => {
+  const handlePreviewContinue = async (selectedCols: string[], useCategory: boolean, categoryColumn?: string) => {
     setSelectedColumns(selectedCols)
-    setSelectedDomain(domain)
 
-    // Call API to get cleaning suggestions
+    console.log("Selected columns:", selectedCols)
+
+    const payload = {
+      rawData,
+      selectedColumns: selectedCols,
+      useCategory,
+      ...(useCategory && categoryColumn && { categoryColumn }),
+      ...(categoryColumn && { allColumns: columns }),
+    }
+
+    console.log("Payload for cleaning suggestions:", payload)
+
     try {
-      const response = await fetch("/api/get-cleaning-suggestions", {
+      const apiEndpoint =
+        !useCategory
+          ? "http://localhost:8080/group_in_column"
+          : "http://localhost:8080/group_by_category"
+
+      console.log("Calling API endpoint:", apiEndpoint)
+
+      const response = await fetch(apiEndpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          columns: selectedCols,
-          domain: domain,
-          data: rawData,
-        }),
+        body: JSON.stringify(payload),
       })
 
       if (!response.ok) {
-        throw new Error("Failed to get cleaning suggestions")
+        throw new Error("Failed to process data")
       }
 
       const cleaningSuggestions = await response.json()
+
+      console.log("Cleaning suggestions received:", cleaningSuggestions)
+
       setCleaningData(cleaningSuggestions)
       setCurrentStep(3)
     } catch (error) {
-      console.error("Failed to get cleaning suggestions:", error)
+      console.error("Failed to pre-process the data:", error)
       // Handle error appropriately
     }
   }
 
   const handleCleaningContinue = (cleaningMappings: CleaningData) => {
+    // console.log("Cleaning mappings:", cleaningMappings);
     setCleaningData(cleaningMappings)
     setCurrentStep(4)
   }
@@ -100,7 +121,7 @@ export function CleanlifyWorkflow() {
     setUploadedFile(null)
     setColumns([])
     setSelectedColumns([])
-    setSelectedDomain("")
+    // setSelectedDomain("")
     setCleaningData({})
     setRawData([])
     setFileType("")
@@ -162,6 +183,7 @@ export function CleanlifyWorkflow() {
             columns={columns}
             rawData={rawData}
             fileType={fileType}
+            selectedColumns={selectedColumns}
             onContinue={handlePreviewContinue}
             onBack={handleBack}
           />
@@ -170,7 +192,7 @@ export function CleanlifyWorkflow() {
         {currentStep === 3 && (
           <CleaningStepEnhanced
             columns={columns.filter((col) => selectedColumns.includes(col.name))}
-            selectedDomain={selectedDomain}
+            // selectedDomain={selectedDomain}
             rawData={rawData}
             cleaningData={cleaningData}
             onContinue={handleCleaningContinue}

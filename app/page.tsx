@@ -1,6 +1,7 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
 import { LoginPage } from "@/components/auth/login-page"
 import { SignupPage } from "@/components/auth/signup-page"
 import { DashboardLayout } from "@/components/dashboard/dashboard-layout"
@@ -18,7 +19,8 @@ export interface ColumnInfo {
   missingCount: number
   uniqueCount: number
   sampleValues: string[]
-  isProblematic?: boolean
+  isShortText?: boolean // New property for text columns
+  important?: boolean // New property for categorical columns
 }
 
 export interface CleaningMapping {
@@ -35,6 +37,14 @@ export interface CleaningData {
 export default function CleanlifyApp() {
   const [currentUser, setCurrentUser] = useState<User | null>(null)
   const [authMode, setAuthMode] = useState<"login" | "signup">("login")
+  const router = useRouter()
+
+  useEffect(() => {
+    // Redirect to login page by default if no user is present
+    if (!currentUser) {
+      router.push("/login")
+    }
+  }, [currentUser, router])
 
   const handleLogin = (email: string, password: string) => {
     // Mock login - in production, this would call your authentication API

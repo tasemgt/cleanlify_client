@@ -6,12 +6,20 @@ import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Download, RotateCcw, CheckCircle, BarChart3 } from "lucide-react"
-import type { CleaningData } from "@/app/page"
+import { Download, RotateCcw, CheckCircle, BarChart3, ChevronLeft, ChevronRight } from "lucide-react"
 
-interface ExportStepEnhancedProps {
+interface ExportStepProps {
   originalData: any[]
-  cleaningData: CleaningData
+  cleaningData: {
+    cleanedData: any[]
+    originalData: any[]
+    status: string
+    summary: Array<{
+      column: string
+      total_values: number
+      manual_corrections: number
+    }>
+  }
   selectedColumns: string[]
   fileName: string
   onRestart: () => void
@@ -25,53 +33,41 @@ export function ExportStepEnhanced({
   fileName,
   onRestart,
   onBack,
-}: ExportStepEnhancedProps) {
+}: ExportStepProps) {
   const [downloading, setDownloading] = useState(false)
+  const [currentPage, setCurrentPage] = useState(0)
+  const [activeTab, setActiveTab] = useState("cleaned")
+  const itemsPerPage = 10
 
-  const cleanedData = useMemo(() => {
-    return originalData.map((row) => {
-      const cleanedRow = { ...row }
+  const totalCorrections = useMemo(() => {
+    return cleaningData.summary?.reduce((sum, item) => sum + (item.manual_corrections || 0), 0) || 0
+  }, [cleaningData.summary])
 
-      selectedColumns.forEach((columnName) => {
-        const mappings = cleaningData[columnName] || []
-        const originalValue = row[columnName]
+  const totalColumns = useMemo(() => {
+    return cleaningData.summary?.length || 0
+  }, [cleaningData.summary])
 
-        const mapping = mappings.find((m) => m.original === originalValue && m.accepted)
-        if (mapping) {
-          cleanedRow[columnName] = mapping.userDefined || mapping.suggested
-        }
-      })
+  const currentData = useMemo(() => {
+    return activeTab === "cleaned" ? cleaningData.cleanedData : cleaningData.originalData
+  }, [activeTab, cleaningData.cleanedData, cleaningData.originalData])
 
-      return cleanedRow
-    })
-  }, [originalData, cleaningData, selectedColumns])
+  const paginatedData = useMemo(() => {
+    const startIndex = currentPage * itemsPerPage
+    return currentData?.slice(startIndex, startIndex + itemsPerPage) || []
+  }, [currentData, currentPage, itemsPerPage])
 
-  const cleaningStats = useMemo(() => {
-    const stats: { [key: string]: { total: number; cleaned: number } } = {}
-
-    selectedColumns.forEach((columnName) => {
-      const mappings = cleaningData[columnName] || []
-      stats[columnName] = {
-        total: mappings.length,
-        cleaned: mappings.filter((m) => m.accepted).length,
-      }
-    })
-
-    return stats
-  }, [cleaningData, selectedColumns])
+  const totalPages = Math.ceil((currentData?.length || 0) / itemsPerPage)
 
   const downloadCSV = async () => {
     setDownloading(true)
 
     try {
-      // Convert cleaned data to CSV
-      const headers = Object.keys(cleanedData[0] || {})
+      const headers = Object.keys(cleaningData.cleanedData[0] || {})
       const csvContent = [
         headers.join(","),
-        ...cleanedData.map((row) => headers.map((header) => `"${row[header] || ""}"`).join(",")),
+        ...cleaningData.cleanedData.map((row) => headers.map((header) => `"${row[header] || ""}"`).join(",")),
       ].join("\n")
 
-      // Create and download file
       const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" })
       const link = document.createElement("a")
       const url = URL.createObjectURL(blob)
@@ -90,15 +86,26 @@ export function ExportStepEnhanced({
   }
 
   const downloadCleaningMap = () => {
-    const cleaningMap = Object.entries(cleaningData).reduce((acc, [columnName, mappings]) => {
-      acc[columnName] = mappings
-        .filter((m) => m.accepted)
-        .map((m) => ({
-          original: m.original,
-          cleaned: m.userDefined || m.suggested,
-        }))
-      return acc
-    }, {} as any)
+    const cleaningMap: { [key: string]: { original: string; cleaned: string }[] } = {}
+
+    if (cleaningData.originalData && cleaningData.cleanedData) {
+      selectedColumns.forEach((columnName) => {
+        cleaningMap[columnName] = []
+
+        cleaningData.originalData.forEach((originalRow, index) => {
+          const cleanedRow = cleaningData.cleanedData[index]
+          const originalValue = originalRow[columnName]
+          const cleanedValue = cleanedRow?.[columnName]
+
+          if (originalValue !== cleanedValue && cleanedValue !== undefined) {
+            cleaningMap[columnName].push({
+              original: originalValue,
+              cleaned: cleanedValue,
+            })
+          }
+        })
+      })
+    }
 
     const blob = new Blob([JSON.stringify(cleaningMap, null, 2)], {
       type: "application/json;charset=utf-8;",
@@ -107,14 +114,29 @@ export function ExportStepEnhanced({
     const url = URL.createObjectURL(blob)
 
     link.setAttribute("href", url)
-    link.setAttribute("download", `cleaning_map_${fileName.replace(/\.[^/.]+$/, ".json")}`)
+    link.setAttribute("download", `cleaning_map_${fileName.replace(".csv", ".json")}`)
     link.style.visibility = "hidden"
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
   }
 
-  const totalChanges = Object.values(cleaningStats).reduce((sum, stat) => sum + stat.cleaned, 0)
+  const handlePageChange = (direction: "prev" | "next" | "start" | "end") => {
+    switch (direction) {
+      case "prev":
+        setCurrentPage(Math.max(0, currentPage - 1))
+        break
+      case "next":
+        setCurrentPage(Math.min(totalPages - 1, currentPage + 1))
+        break
+      case "start":
+        setCurrentPage(0)
+        break
+      case "end":
+        setCurrentPage(totalPages - 1)
+        break
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -128,7 +150,8 @@ export function ExportStepEnhanced({
             <div>
               <h3 className="text-lg font-semibold text-green-900 dark:text-green-100">Data Cleaning Complete!</h3>
               <p className="text-green-700 dark:text-green-300">
-                Successfully cleaned {totalChanges} values across {selectedColumns.length} columns
+                All columns processed and cleaned successfully across {totalColumns} columns. A total of{" "}
+                {totalCorrections} values were corrected.
               </p>
             </div>
           </div>
@@ -146,17 +169,17 @@ export function ExportStepEnhanced({
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {selectedColumns.map((columnName) => (
-              <div key={columnName} className="p-4 border rounded-lg">
-                <h4 className="font-medium mb-2">{columnName}</h4>
+            {cleaningData.summary?.map((item) => (
+              <div key={item.column} className="p-4 border rounded-lg">
+                <h4 className="font-medium mb-2">{item.column}</h4>
                 <div className="space-y-2">
                   <div className="flex justify-between text-sm">
-                    <span>Total suggestions:</span>
-                    <Badge variant="secondary">{cleaningStats[columnName]?.total || 0}</Badge>
+                    <span>Total values:</span>
+                    <Badge variant="secondary">{item.total_values}</Badge>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span>Applied changes:</span>
-                    <Badge variant="default">{cleaningStats[columnName]?.cleaned || 0}</Badge>
+                    <span>Corrections made:</span>
+                    <Badge variant="default">{item.manual_corrections}</Badge>
                   </div>
                 </div>
               </div>
@@ -165,14 +188,14 @@ export function ExportStepEnhanced({
         </CardContent>
       </Card>
 
-      {/* Data Comparison */}
+      {/* Data Comparison & Preview */}
       <Card>
         <CardHeader>
-          <CardTitle>Before & After Comparison</CardTitle>
-          <CardDescription>Compare your original and cleaned data</CardDescription>
+          <CardTitle>Data Comparison & Preview</CardTitle>
+          <CardDescription>Preview your original and cleaned data</CardDescription>
         </CardHeader>
         <CardContent>
-          <Tabs defaultValue="cleaned" className="w-full">
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="cleaned">Cleaned Data</TabsTrigger>
               <TabsTrigger value="original">Original Data</TabsTrigger>
@@ -183,20 +206,13 @@ export function ExportStepEnhanced({
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      {Object.keys(cleanedData[0] || {}).map((header) => (
-                        <TableHead key={header}>
-                          {header}
-                          {selectedColumns.includes(header) && (
-                            <Badge variant="outline" className="ml-2">
-                              Cleaned
-                            </Badge>
-                          )}
-                        </TableHead>
+                      {Object.keys(paginatedData[0] || {}).map((header) => (
+                        <TableHead key={header}>{header}</TableHead>
                       ))}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {cleanedData.slice(0, 10).map((row, index) => (
+                    {paginatedData.map((row, index) => (
                       <TableRow key={index}>
                         {Object.keys(row).map((key) => (
                           <TableCell key={key} className="max-w-xs truncate">
@@ -208,7 +224,6 @@ export function ExportStepEnhanced({
                   </TableBody>
                 </Table>
               </div>
-              <p className="text-sm text-gray-600">Showing first 10 rows of {cleanedData.length} total rows</p>
             </TabsContent>
 
             <TabsContent value="original" className="space-y-4">
@@ -216,13 +231,13 @@ export function ExportStepEnhanced({
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      {Object.keys(originalData[0] || {}).map((header) => (
+                      {Object.keys(paginatedData[0] || {}).map((header) => (
                         <TableHead key={header}>{header}</TableHead>
                       ))}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {originalData.slice(0, 10).map((row, index) => (
+                    {paginatedData.map((row, index) => (
                       <TableRow key={index}>
                         {Object.keys(row).map((key) => (
                           <TableCell key={key} className="max-w-xs truncate">
@@ -234,8 +249,53 @@ export function ExportStepEnhanced({
                   </TableBody>
                 </Table>
               </div>
-              <p className="text-sm text-gray-600">Showing first 10 rows of {originalData.length} total rows</p>
             </TabsContent>
+
+            {/* Pagination Controls */}
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-gray-600">
+                Showing {currentPage * itemsPerPage + 1} to{" "}
+                {Math.min((currentPage + 1) * itemsPerPage, currentData?.length || 0)} of {currentData?.length || 0}{" "}
+                rows
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handlePageChange("start")}
+                  disabled={currentPage === 0}
+                >
+                  Start
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handlePageChange("prev")}
+                  disabled={currentPage === 0}
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </Button>
+                <span className="text-sm">
+                  Page {currentPage + 1} of {totalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handlePageChange("next")}
+                  disabled={currentPage >= totalPages - 1}
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handlePageChange("end")}
+                  disabled={currentPage >= totalPages - 1}
+                >
+                  End
+                </Button>
+              </div>
+            </div>
           </Tabs>
         </CardContent>
       </Card>
@@ -259,7 +319,7 @@ export function ExportStepEnhanced({
 
         <Button onClick={downloadCSV} disabled={downloading} size="lg" className="bg-green-600 hover:bg-green-700">
           <Download className="w-4 h-4 mr-2" />
-          {downloading ? "Preparing Download..." : "Download Cleaned Data"}
+          {downloading ? "Preparing Download..." : "Download Data"}
         </Button>
       </div>
     </div>

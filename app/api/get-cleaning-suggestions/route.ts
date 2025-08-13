@@ -2,7 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 
 export async function POST(request: NextRequest) {
   try {
-    const { columns, domain, data } = await request.json()
+    const { columns, data } = await request.json()
 
     // Mock cleaning suggestions - replace with actual AI/ML logic
     const mockCleaningSuggestions: any = {}
@@ -12,18 +12,9 @@ export async function POST(request: NextRequest) {
       const uniqueValues = [...new Set(columnData)]
 
       const suggestions = uniqueValues
-        .slice(0, 10)
+        .slice(0, 25) // Generate more suggestions for pagination testing
         .map((value: string) => {
           let suggested = value.trim()
-
-          // Apply domain-specific cleaning rules
-          if (domain === "healthcare") {
-            suggested = suggested.replace(/\b(dr|doctor)\b/gi, "Doctor")
-            suggested = suggested.replace(/\b(med|medicine)\b/gi, "Medicine")
-          } else if (domain === "education") {
-            suggested = suggested.replace(/\b(prof|professor)\b/gi, "Professor")
-            suggested = suggested.replace(/\b(univ|university)\b/gi, "University")
-          }
 
           // General cleaning
           suggested = suggested.replace(/\s+/g, " ")
