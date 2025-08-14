@@ -50,31 +50,60 @@ export function PreviewStepEnhanced({
   const [isLoading, setIsLoading] = useState(false)
   const [useCategoryApproach, setUseCategoryApproach] = useState<boolean | null>(null)
   const [columnPage, setColumnPage] = useState(1)
+  const [showCategorical, setShowCategorical] = useState(true)
+  const [showNumeric, setShowNumeric] = useState(true)
+  const [showText, setShowText] = useState(true)
+  const [selectedCategoryColumn, setSelectedCategoryColumn] = useState<string>("")
+  const [categoriesAsText, setCategoriesAsText] = useState<Set<string>>(new Set())
 
   const itemsPerPage = 10
   const columnsPerPage = 10
 
-  // Categorize columns
   const categoricalColumns = columns.filter((col) => col.type === "categorical")
   const numericColumns = columns.filter((col) => col.type === "numeric")
   const textColumns = columns.filter((col) => col.type === "text")
   const shortTextColumns = textColumns.filter((col) => col.isShortText)
   const longTextColumns = textColumns.filter((col) => !col.isShortText)
 
-  // Find important categorical column
   const importantCategoryColumn = categoricalColumns.find((col) => col.important)
+  const mostImportantCategoryColumn = categoricalColumns.find((col) => col.most_important)
   const hasCategoricalColumns = categoricalColumns.length > 0
   const hasImportantCategory = !!importantCategoryColumn
 
-  // Get all columns for pagination
   const allColumnsForDisplay = [...categoricalColumns, ...numericColumns, ...textColumns]
   const totalColumnPages = Math.ceil(allColumnsForDisplay.length / columnsPerPage)
   const paginatedColumns = allColumnsForDisplay.slice((columnPage - 1) * columnsPerPage, columnPage * columnsPerPage)
 
+  const handleTreatAsText = (columnName: string) => {
+    setCategoriesAsText((prev) => {
+      const newSet = new Set(prev)
+      if (newSet.has(columnName)) {
+        newSet.delete(columnName)
+        // Remove from selected columns when switching back to category treatment
+        setSelectedColumns((prevSelected) => prevSelected.filter((name) => name !== columnName))
+      } else {
+        newSet.add(columnName)
+        // Add to selected columns when treating as text
+        setSelectedColumns((prevSelected) =>
+          prevSelected.includes(columnName) ? prevSelected : [...prevSelected, columnName],
+        )
+      }
+      return newSet
+    })
+  }
+
   const handleColumnToggle = (columnName: string) => {
     const column = columns.find((col) => col.name === columnName)
-    // Only allow selection of short text columns
-    if (column?.type === "text" && column.isShortText) {
+
+    if (useCategoryApproach === true && column?.type === "categorical") {
+      setSelectedCategoryColumn(columnName)
+      const allShortTextColumns = shortTextColumns.map((col) => col.name)
+      setSelectedColumns([...allShortTextColumns, columnName])
+    } else if (useCategoryApproach === false && column?.type === "categorical") {
+      setSelectedColumns((prev) =>
+        prev.includes(columnName) ? prev.filter((name) => name !== columnName) : [...prev, columnName],
+      )
+    } else if (column?.type === "text" && column.isShortText) {
       setSelectedColumns((prev) =>
         prev.includes(columnName) ? prev.filter((name) => name !== columnName) : [...prev, columnName],
       )
@@ -86,10 +115,8 @@ export function PreviewStepEnhanced({
     const allVisibleShortTextSelected = visibleShortTextColumns.every((col) => selectedColumns.includes(col.name))
 
     if (allVisibleShortTextSelected) {
-      // Remove all visible short text columns from selection
       setSelectedColumns((prev) => prev.filter((name) => !visibleShortTextColumns.some((col) => col.name === name)))
     } else {
-      // Add all visible short text columns to selection
       const newSelections = visibleShortTextColumns.map((col) => col.name)
       setSelectedColumns((prev) => [...new Set([...prev, ...newSelections])])
     }
@@ -97,26 +124,30 @@ export function PreviewStepEnhanced({
 
   const handleCategoryApproachSelection = (useCategory: boolean) => {
     setUseCategoryApproach(useCategory)
-    if (useCategory && hasImportantCategory) {
-      // Auto-select all short text columns and the important category column when using category approach
+    setCategoriesAsText(new Set())
+
+    if (useCategory && hasCategoricalColumns) {
       const allShortTextColumns = shortTextColumns.map((col) => col.name)
-      const categoryColumn = importantCategoryColumn.name
-      setSelectedColumns([...allShortTextColumns, categoryColumn])
+      const categoryColumn = mostImportantCategoryColumn?.name || categoricalColumns[0]?.name
+      if (categoryColumn) {
+        setSelectedCategoryColumn(categoryColumn)
+        setSelectedColumns([...allShortTextColumns, categoryColumn])
+      }
     } else {
-      // Clear selections when not using category approach
+      setSelectedCategoryColumn("")
       setSelectedColumns([])
     }
   }
 
   const handleContinue = async () => {
-    // if (!useCategoryApproach) return
-    
+    // if (useCategoryApproach === null) return
+
     setIsLoading(true)
     try {
       await onContinue(
         selectedColumns,
         useCategoryApproach,
-        useCategoryApproach && importantCategoryColumn ? importantCategoryColumn.name : undefined,
+        useCategoryApproach && selectedCategoryColumn ? selectedCategoryColumn : undefined,
       )
     } catch (error) {
       console.error("Failed to continue:", error)
@@ -151,13 +182,11 @@ export function PreviewStepEnhanced({
     }
   }
 
-  // Filter columns for data preview (search only)
   const filteredColumns = columns.filter((column) => {
     const matchesSearch = column.name.toLowerCase().includes(searchTerm.toLowerCase())
     return matchesSearch
   })
 
-  // Filter and paginate data based on search term
   const filteredData = rawData.filter((row) => {
     if (!searchTerm) return true
 
@@ -170,14 +199,11 @@ export function PreviewStepEnhanced({
   const totalPages = Math.ceil(filteredData.length / itemsPerPage)
   const paginatedData = filteredData.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
 
-  // Reset pagination when search changes
   useEffect(() => {
     setCurrentPage(1)
   }, [searchTerm])
 
-  // Add this useEffect after the existing state declarations
   useEffect(() => {
-    // Auto-select category approach if there are categorical columns and important category
     if (hasCategoricalColumns && hasImportantCategory && useCategoryApproach === null) {
       handleCategoryApproachSelection(true)
     }
@@ -232,81 +258,170 @@ export function PreviewStepEnhanced({
     const visibleColumns = sectionColumns.filter((col) => paginatedColumns.includes(col))
     if (visibleColumns.length === 0) return null
 
+    let isVisible = true
+    if (title === "Categorical Columns") isVisible = showCategorical
+    if (title === "Numeric Columns") isVisible = showNumeric
+    if (title === "Text Columns") isVisible = showText
+
     return (
       <div className="space-y-3">
-        <div className="flex items-center gap-2">
+        <div
+          className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 p-2 rounded-lg transition-colors"
+          onClick={() => {
+            if (title === "Categorical Columns") setShowCategorical(!showCategorical)
+            if (title === "Numeric Columns") setShowNumeric(!showNumeric)
+            if (title === "Text Columns") setShowText(!showText)
+          }}
+        >
           {icon}
           <h4 className="font-medium text-lg">{title}</h4>
           <Badge variant="secondary">{sectionColumns.length}</Badge>
+          <ChevronRight className={`w-4 h-4 transition-transform ${isVisible ? "rotate-90" : ""}`} />
         </div>
-        <div className="space-y-3">
-          {visibleColumns.map((column) => {
-            const isSelectable = column.type === "text" && column.isShortText
-            const isSelected = selectedColumns.includes(column.name)
-            const isCategorySelected = useCategoryApproach === true && column.type === "categorical" && column.important
+        {isVisible && (
+          <div className="space-y-3">
+            {visibleColumns.map((column) => {
+              const isTextSelectable = column.type === "text" && column.isShortText
+              const isCategoricalSelectable =
+                column.type === "categorical" && (useCategoryApproach === true || useCategoryApproach === false)
+              const isSelectable = isTextSelectable || isCategoricalSelectable
+              const isSelected = selectedColumns.includes(column.name)
+              const isCategorySelected =
+                useCategoryApproach === true && column.type === "categorical" && selectedCategoryColumn === column.name
+              const isTreatedAsText = categoriesAsText.has(column.name)
+              const isRadioDisabled = isTreatedAsText
 
-            return (
-              <div
-                key={column.name}
-                className={`flex items-center space-x-4 p-4 border rounded-lg ${
-                  !isSelectable && !isCategorySelected ? "opacity-60 bg-gray-50 dark:bg-gray-800" : ""
-                } ${isCategorySelected ? "border-blue-500 bg-blue-50 dark:bg-blue-950" : ""}`}
-              >
-                <Checkbox
-                  id={column.name}
-                  checked={isSelected || isCategorySelected}
-                  onCheckedChange={() => handleColumnToggle(column.name)}
-                  disabled={!isSelectable || isCategorySelected}
-                />
+              return (
+                <div
+                  key={column.name}
+                  className={`flex flex-col space-y-3 p-4 border rounded-lg ${
+                    !isSelectable ? "opacity-60 bg-gray-50 dark:bg-gray-800" : ""
+                  } ${isCategorySelected ? "border-blue-500 bg-blue-50 dark:bg-blue-950" : ""}`}
+                >
+                  <div className="flex items-center space-x-4">
+                    {useCategoryApproach === true && column.type === "categorical" ? (
+                      <input
+                        type="radio"
+                        id={column.name}
+                        name="category-column"
+                        checked={selectedCategoryColumn === column.name}
+                        onChange={() => handleColumnToggle(column.name)}
+                        disabled={isRadioDisabled}
+                        className="w-4 h-4"
+                      />
+                    ) : (
+                      <Checkbox
+                        id={column.name}
+                        checked={isSelected}
+                        onCheckedChange={() => handleColumnToggle(column.name)}
+                        disabled={!isSelectable}
+                      />
+                    )}
 
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-1">
-                    <h5 className="font-medium">{column.name}</h5>
-                    <Badge className={getTypeColor(column.type)}>
-                      <span className="flex items-center gap-1">
-                        {getTypeIcon(column.type)}
-                        {column.type}
-                      </span>
-                    </Badge>
-                    {column.type === "categorical" && column.important && (
-                      <Badge
-                        variant="default"
-                        className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200"
-                      >
-                        <Star className="w-3 h-3 mr-1" />
-                        Important
-                      </Badge>
-                    )}
-                    {column.type === "text" && (
-                      <Badge variant={column.isShortText ? "default" : "secondary"}>
-                        {column.isShortText ? "Short Text" : "Long Text"}
-                      </Badge>
-                    )}
-                    {isCategorySelected && (
-                      <Badge variant="default" className="bg-blue-600">
-                        Selected for Processing
-                      </Badge>
-                    )}
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <h5 className="font-medium">{column.name}</h5>
+                        <Badge className={getTypeColor(column.type)}>
+                          <span className="flex items-center gap-1">
+                            {getTypeIcon(column.type)}
+                            {column.type}
+                          </span>
+                        </Badge>
+                        {column.type === "categorical" && column.most_important && (
+                          <Badge
+                            variant="default"
+                            className="bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200"
+                          >
+                            <Star className="w-3 h-3 mr-1" />
+                            Most Important
+                          </Badge>
+                        )}
+                        {column.type === "categorical" && column.important && !column.most_important && (
+                          <Badge
+                            variant="default"
+                            className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200"
+                          >
+                            <Star className="w-3 h-3 mr-1" />
+                            Important
+                          </Badge>
+                        )}
+                        {column.type === "text" && (
+                          <Badge variant={column.isShortText ? "default" : "secondary"}>
+                            {column.isShortText ? "Short Text" : "Long Text"}
+                          </Badge>
+                        )}
+                        {isCategorySelected && (
+                          <Badge variant="default" className="bg-blue-600">
+                            Selected for Processing
+                          </Badge>
+                        )}
+                        {isTreatedAsText && (
+                          <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-200">
+                            Treated as Free Text
+                          </Badge>
+                        )}
+                      </div>
+
+                      <div className="text-sm text-gray-600 space-y-1">
+                        <p>
+                          Missing values: {column.missingCount} | Unique values: {column.uniqueCount}
+                        </p>
+                        <p>Sample values: {column.sampleValues.join(", ")}</p>
+                      </div>
+                    </div>
                   </div>
 
-                  <div className="text-sm text-gray-600 space-y-1">
-                    <p>
-                      Missing values: {column.missingCount} | Unique values: {column.uniqueCount}
-                    </p>
-                    <p>Sample values: {column.sampleValues.join(", ")}</p>
-                  </div>
+                  {/* Moved "Treat as free text" functionality to category approach instead of direct approach */}
+                  {useCategoryApproach === true &&
+                    column.type === "categorical" &&
+                    selectedCategoryColumn !== column.name && (
+                      <div className="flex justify-end">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleTreatAsText(column.name)}
+                          className={isTreatedAsText ? "bg-purple-50 border-purple-200 text-purple-700" : ""}
+                        >
+                          {isTreatedAsText ? "Treat as category" : "Treat as free text"}
+                        </Button>
+                      </div>
+                    )}
                 </div>
-              </div>
-            )
-          })}
-        </div>
+              )
+            })}
+          </div>
+        )}
       </div>
     )
   }
 
+  const getCategoryModeValidation = () => {
+    if (useCategoryApproach !== true) return { isValid: true, message: "" }
+
+    const categoryColumnCount = selectedCategoryColumn ? 1 : 0
+    const textColumnCount = selectedColumns.filter((col) => {
+      const column = columns.find((c) => c.name === col)
+      return column?.type === "text" && column.isShortText
+    }).length
+    const treatedAsTextCount = categoriesAsText.size
+
+    const totalColumns = categoryColumnCount + textColumnCount + treatedAsTextCount
+
+    if (totalColumns < 2) {
+      return {
+        isValid: false,
+        message: "Select at least 2 columns: 1 category column and at least 1 text column to proceed",
+      }
+    }
+
+    return { isValid: true, message: "" }
+  }
+
+  const categoryValidation = getCategoryModeValidation()
+
   return (
     <div className="space-y-6">
-      {/* Summary Cards */}
+      {/* ... existing summary cards ... */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
           <CardContent className="p-6">
@@ -360,14 +475,13 @@ export function PreviewStepEnhanced({
         </Card>
       </div>
 
-      {/* Data Preview */}
+      {/* ... existing data preview card ... */}
       <Card>
         <CardHeader>
           <CardTitle>Data Preview</CardTitle>
           <CardDescription>Browse your data with search and filtering</CardDescription>
         </CardHeader>
         <CardContent>
-          {/* Search Controls */}
           <div className="flex flex-col sm:flex-row gap-4 mb-4">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
@@ -411,7 +525,6 @@ export function PreviewStepEnhanced({
             </Table>
           </div>
 
-          {/* Pagination */}
           <div className="flex items-center justify-between mt-4">
             <p className="text-sm text-gray-600">
               {filteredData.length > 0 ? (
@@ -448,18 +561,16 @@ export function PreviewStepEnhanced({
         </CardContent>
       </Card>
 
-      {/* Categorical Column Detection Alert */}
       {hasCategoricalColumns && hasImportantCategory && (
         <Alert>
           <Info className="h-4 w-4" />
           <AlertDescription>
-            <strong>Categorical columns detected!</strong> We recommend you clean your data based on the suggested
+            <strong>Categorical columns detected!</strong> We recommend you process your data based on the suggested
             important categorical column "{importantCategoryColumn.name}" to get the best results from this process.
           </AlertDescription>
         </Alert>
       )}
 
-      {/* Processing Approach Selection */}
       {hasCategoricalColumns && hasImportantCategory && (
         <Card>
           <CardHeader>
@@ -478,9 +589,9 @@ export function PreviewStepEnhanced({
                   className="w-4 h-4"
                 />
                 <label htmlFor="use-category" className="flex-1 cursor-pointer">
-                  <div className="font-medium">Clean with important category (Recommended)</div>
+                  <div className="font-medium">Process with important category (Suggested)</div>
                   <div className="text-sm text-gray-600">
-                    Use "{importantCategoryColumn.name}" to structure and improve cleaning results
+                    Use "{importantCategoryColumn.name}" to structure and improve processing results
                   </div>
                 </label>
               </div>
@@ -496,7 +607,7 @@ export function PreviewStepEnhanced({
                 />
                 <label htmlFor="no-category" className="flex-1 cursor-pointer">
                   <div className="font-medium flex items-center gap-2">
-                    Clean columns directly
+                    Process all selected columns directly
                     <TooltipProvider>
                       <Tooltip>
                         <TooltipTrigger>
@@ -504,14 +615,14 @@ export function PreviewStepEnhanced({
                         </TooltipTrigger>
                         <TooltipContent>
                           <p>
-                            It is recommended you clean your data using the category '{importantCategoryColumn.name}' to
-                            get the best results from this process
+                            It is recommended you process your data using the category '{importantCategoryColumn.name}'
+                            to get the best results from this process
                           </p>
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
                   </div>
-                  <div className="text-sm text-gray-600">Clean selected columns without categorical structuring</div>
+                  <div className="text-sm text-gray-600">Process selected columns without categorical structuring</div>
                 </label>
               </div>
             </div>
@@ -519,17 +630,18 @@ export function PreviewStepEnhanced({
         </Card>
       )}
 
-      {/* Column Analysis */}
       <Card>
         <CardHeader>
           <CardTitle>Column Analysis</CardTitle>
           <CardDescription>
-            Review detected columns from your {fileType?.toUpperCase() || "data"} file and select short text fields for
-            cleaning
+            {useCategoryApproach === true
+              ? "Select one categorical column to process with (radio button selection)"
+              : "Review detected columns from your " +
+                (fileType?.toUpperCase() || "data") +
+                " file and select columns for processing"}
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {/* Select All Short Text Checkbox - only show when not using category approach or no category approach selected */}
           {(useCategoryApproach === false || useCategoryApproach === null) && shortTextColumns.length > 0 && (
             <div className="flex items-center space-x-2 mb-6 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
               <Checkbox
@@ -540,7 +652,7 @@ export function PreviewStepEnhanced({
                 onCheckedChange={handleSelectAllShortText}
               />
               <label htmlFor="select-all-short-text" className="text-sm font-medium">
-                Select all visible short text fields for cleaning
+                Select all visible short text fields for processing
               </label>
             </div>
           )}
@@ -555,37 +667,41 @@ export function PreviewStepEnhanced({
             {renderColumnSection("Text Columns", textColumns, <Type className="w-5 h-5 text-purple-600" />)}
           </div>
 
-          {/* Column Pagination Controls */}
           {renderColumnPaginationControls()}
         </CardContent>
       </Card>
 
-      {/* Navigation Buttons */}
       <div className="flex justify-between">
         {onBack && (
           <Button variant="outline" onClick={onBack} size="lg">
             ← Back
           </Button>
         )}
-        <Button
-          onClick={handleContinue}
-          disabled={
-            selectedColumns.length === 0 ||
-            (hasCategoricalColumns && hasImportantCategory && useCategoryApproach === null) ||
-            isLoading
-          }
-          size="lg"
-          className="ml-auto"
-        >
-          {isLoading ? (
-            <>
-              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              Processing...
-            </>
-          ) : (
-            `Continue to Cleaning (${selectedColumns.length} columns selected)`
+        <div className="flex flex-col items-end gap-2">
+          {useCategoryApproach === true && !categoryValidation.isValid && (
+            <p className="text-sm text-amber-600 dark:text-amber-400">{categoryValidation.message}</p>
           )}
-        </Button>
+          <Button
+            onClick={handleContinue}
+            disabled={
+              selectedColumns.length === 0 ||
+              (hasCategoricalColumns && hasImportantCategory && useCategoryApproach === null) ||
+              (useCategoryApproach === true && !categoryValidation.isValid) ||
+              isLoading
+            }
+            size="lg"
+            className="ml-auto"
+          >
+            {isLoading ? (
+              <>
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                Processing...
+              </>
+            ) : (
+              `Continue to Processing (${selectedColumns.length} columns selected)`
+            )}
+          </Button>
+        </div>
       </div>
     </div>
   )

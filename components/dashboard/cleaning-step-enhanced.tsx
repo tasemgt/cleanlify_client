@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { useToast } from "@/hooks/use-toast"
 import {
   Check,
   Edit3,
@@ -18,6 +19,9 @@ import {
   RotateCcw,
   ChevronDown,
   ChevronUp,
+  RefreshCw,
+  Network,
+  Zap,
 } from "lucide-react"
 import type { ColumnInfo } from "@/app/page"
 
@@ -69,11 +73,19 @@ export function CleaningStepEnhanced({
   onContinue,
   onBack,
 }: CleaningStepEnhancedProps) {
+  const { toast } = useToast()
+
   const [cleaningData, setCleaningData] = useState<CleaningResponse>(initialCleaningData)
   const [editingValues, setEditingValues] = useState<{ [key: string]: string }>({})
   const [isLoading, setIsLoading] = useState(false)
   const [currentPages, setCurrentPages] = useState<{ [key: string]: number }>({})
   const [expandedClusters, setExpandedClusters] = useState<{ [key: string]: boolean }>({})
+  const [clusterCustomValues, setClusterCustomValues] = useState<{ [key: string]: string }>({})
+  const [clusterLoadingStates, setClusterLoadingStates] = useState<{ [key: string]: boolean }>({})
+  const [originalSuggestions, setOriginalSuggestions] = useState<{ [key: string]: string }>({})
+  const [llmPrompts, setLlmPrompts] = useState<{ [key: string]: string }>({})
+  const [googleKgLoadingStates, setGoogleKgLoadingStates] = useState<{ [key: string]: boolean }>({})
+  const [llmLoadingStates, setLlmLoadingStates] = useState<{ [key: string]: boolean }>({})
 
   const itemsPerPage = 10
 
@@ -119,9 +131,6 @@ export function CleaningStepEnhanced({
 
       return newData
     })
-
-    // Don't clear the editing value - keep it visible
-    // setEditingValues((prev) => ({ ...prev, [`${categoryName}-${clusterId}-${memberIndex}`]: "" }))
   }
 
   const handleRevertToSuggestion = (categoryName: string, clusterId: string, memberIndex: number) => {
@@ -164,8 +173,9 @@ export function CleaningStepEnhanced({
   }
 
   const getTotalSuggestions = () => {
+    if (!cleaningData?.groupedData) return 0
+
     let total = 0
-    if (!cleaningData || !cleaningData.groupedData) return total
     Object.values(cleaningData.groupedData).forEach((categoryData) => {
       Object.values(categoryData).forEach((cluster) => {
         // Only count non-empty members
@@ -178,6 +188,8 @@ export function CleaningStepEnhanced({
   }
 
   const getProcessedSuggestions = () => {
+    if (!cleaningData?.groupedData) return 0
+
     let processed = 0
     Object.values(cleaningData.groupedData).forEach((categoryData) => {
       Object.values(categoryData).forEach((cluster) => {
@@ -208,10 +220,18 @@ export function CleaningStepEnhanced({
       }
 
       const result = await response.json()
-      console.log("Cleaning process completed successfully:", result)
+      toast({
+        title: "Success",
+        description: "Cleaning data processed successfully!",
+      })
       await onContinue(result)
     } catch (error) {
       console.error("Failed to continue:", error)
+      toast({
+        title: "Error",
+        description: "Failed to process cleaning data. Please try again.",
+        variant: "destructive",
+      })
     } finally {
       setIsLoading(false)
     }
@@ -273,14 +293,206 @@ export function CleaningStepEnhanced({
     return exception ? exception.value : null
   }
 
+  const handleClusterCustomValue = (categoryName: string, clusterId: string, customValue: string) => {
+    if (!customValue || customValue.trim() === "") return
+
+    const clusterKey = `${categoryName}-${clusterId}`
+
+    const cluster = cleaningData.groupedData[categoryName][clusterId]
+
+      setOriginalSuggestions((prev) => {
+        if (!prev[clusterKey]) {
+          return {
+            ...prev,
+            [clusterKey]: cluster.suggestion,
+          }
+        }
+        return prev
+      })
+
+    setCleaningData((prev) => {
+      const newData = { ...prev }
+      const cluster = newData.groupedData[categoryName][clusterId]
+
+      // Update the cluster suggestion with custom value
+      cluster.suggestion = customValue
+      cluster.suggestion_mode = "custom_clean"
+
+      // Clear any existing exceptions since we're applying to all
+      cluster.exceptions = []
+
+      return newData
+    })
+
+    // Clear the input
+    setClusterCustomValues((prev) => ({ ...prev, [clusterKey]: "" }))
+  }
+
+  const handleRestoreOriginalSuggestion = (categoryName: string, clusterId: string) => {
+    const clusterKey = `${categoryName}-${clusterId}`
+    const originalSuggestion = originalSuggestions[clusterKey]
+
+    if (originalSuggestion) {
+      setCleaningData((prev) => {
+        const newData = { ...prev }
+        const cluster = newData.groupedData[categoryName][clusterId]
+
+        cluster.suggestion = originalSuggestion
+        cluster.suggestion_mode = "suggested"
+        // Clear any exceptions
+        cluster.exceptions = []
+
+        return newData
+      })
+    }
+  }
+
+  const handleGoogleKgSuggestion = async (categoryName: string, clusterId: string) => {
+    const clusterKey = `${categoryName}-${clusterId}`
+    setGoogleKgLoadingStates((prev) => ({ ...prev, [clusterKey]: true }))
+
+    try {
+      const cluster = cleaningData.groupedData[categoryName][clusterId]
+
+      setOriginalSuggestions((prev) => {
+        if (!prev[clusterKey]) {
+          return {
+            ...prev,
+            [clusterKey]: cluster.suggestion,
+          }
+        }
+        return prev
+      })
+
+      const payload = {
+        members: cluster.members.map((member) => member.value),
+      }
+
+      const response = await fetch("http://localhost:8080/use_google_kg", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to get Google KG suggestion")
+      }
+
+      const result = await response.json()
+
+      setCleaningData((prev) => {
+        const newData = { ...prev }
+        const cluster = newData.groupedData[categoryName][clusterId]
+
+        cluster.suggestion = result.suggestion
+        cluster.suggestion_mode = "google_kg"
+
+        // Clear any exceptions since we're applying new suggestion to all
+        cluster.exceptions = []
+
+        return newData
+      })
+
+      toast({
+        title: "Success",
+        description: "Knowledge Graph suggestion applied successfully!",
+      })
+    } catch (error) {
+      console.error("Failed to get Google KG suggestion:", error)
+      toast({
+        title: "Error",
+        description: "Failed to get Knowledge Graph suggestion. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setGoogleKgLoadingStates((prev) => ({ ...prev, [clusterKey]: false }))
+    }
+  }
+
+  const handleLlmSuggestion = async (categoryName: string, clusterId: string) => {
+    const clusterKey = `${categoryName}-${clusterId}`
+    const prompt = llmPrompts[clusterKey]
+
+    if (!prompt || prompt.trim() === "") {
+      toast({
+        title: "Prompt Required",
+        description: "Please enter a context prompt for the LLM suggestion.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setLlmLoadingStates((prev) => ({ ...prev, [clusterKey]: true }))
+
+    try {
+      const cluster = cleaningData.groupedData[categoryName][clusterId]
+
+      setOriginalSuggestions((prev) => {
+        if (!prev[clusterKey]) {
+          return {
+            ...prev,
+            [clusterKey]: cluster.suggestion,
+          }
+        }
+        return prev
+      })
+
+      const payload = {
+        prompt: prompt,
+        members: cluster.members.map((member) => member.value),
+      }
+
+      const response = await fetch("http://localhost:8080/use_llm", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to get LLM suggestion")
+      }
+
+      const result = await response.json()
+
+      setCleaningData((prev) => {
+        const newData = { ...prev }
+        const cluster = newData.groupedData[categoryName][clusterId]
+
+        cluster.suggestion = result.suggestion
+        cluster.suggestion_mode = "llm_suggest"
+
+        // Clear any exceptions since we're applying new suggestion to all
+        cluster.exceptions = []
+
+        return newData
+      })
+
+      toast({
+        title: "Success",
+        description: "LLM suggestion applied successfully!",
+      })
+    } catch (error) {
+      console.error("Failed to get LLM suggestion:", error)
+      toast({
+        title: "Error",
+        description: "Failed to get LLM suggestion. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setLlmLoadingStates((prev) => ({ ...prev, [clusterKey]: false }))
+    }
+  }
+
   const renderClusterContent = (categoryName: string, categoryData: CategoryData) => {
     const clusters = Object.entries(categoryData)
     const currentPage = getCurrentPage(categoryName)
     const startIndex = (currentPage - 1) * itemsPerPage
     const endIndex = startIndex + itemsPerPage
     const paginatedClusters = clusters.slice(startIndex, endIndex)
-
-    // console.log('Cat data', categoryName, categoryData);
 
     return (
       <div className="space-y-4">
@@ -292,34 +504,131 @@ export function CleaningStepEnhanced({
           if (!displayMembers || displayMembers.length === 0) return null
 
           const isExpanded = isClusterExpanded(categoryName, clusterId)
+          const clusterKey = `${categoryName}-${clusterId}`
+          const isGoogleKgLoading = googleKgLoadingStates[clusterKey]
+          const isLlmLoading = llmLoadingStates[clusterKey]
+          const showConfidenceBadge = cluster.suggestion_mode === "suggested"
 
           return (
             <div key={clusterId} className="border rounded-lg">
               {/* Cluster Header - Always Visible */}
-              <div
-                className="flex items-center justify-between p-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-                onClick={() => toggleClusterExpansion(categoryName, clusterId)}
-              >
-                <div className="flex-1">
-                  <div className="flex items-center gap-3">
-                    <h5 className="font-medium text-lg">Cluster: {clusterId}</h5>
-                    <Badge variant="outline" className="text-xs">
-                      {displayMembers.length} items
-                    </Badge>
+              <div className="p-4">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-3">
+                      <h5 className="font-medium text-lg">Cluster: {clusterId}</h5>
+                      <Badge variant="outline" className="text-xs">
+                        {displayMembers.length} items
+                      </Badge>
+                    </div>
+                    <p className="text-sm text-gray-600 mt-1">
+                      Suggestion: <span className="font-medium">{cluster.suggestion}</span>
+                      <Badge variant="outline" className="ml-2 text-xs">
+                        {cluster.suggestion_mode}
+                      </Badge>
+                      {showConfidenceBadge && (
+                        <Badge variant="secondary" className="ml-2 text-xs">
+                          {Math.round(cluster.confidence * 100)}% confidence
+                        </Badge>
+                      )}
+                    </p>
                   </div>
-                  <p className="text-sm text-gray-600 mt-1">
-                    Suggestion: <span className="font-medium">{cluster.suggestion}</span>
-                    <Badge variant="outline" className="ml-2 text-xs">
-                      {cluster.suggestion_mode}
-                    </Badge>
-                    <Badge variant="secondary" className="ml-2 text-xs">
-                      {Math.round(cluster.confidence * 100)}% confidence
-                    </Badge>
-                  </p>
+                  <Button variant="ghost" size="sm" onClick={() => toggleClusterExpansion(categoryName, clusterId)}>
+                    {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                  </Button>
                 </div>
-                <Button variant="ghost" size="sm">
-                  {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                </Button>
+
+                <div className="space-y-4">
+                  {/* Section 1: Get Cluster suggestions with advanced tools */}
+                  <div className="border rounded-lg p-3 bg-gray-50 dark:bg-gray-900">
+                    <h6 className="font-medium text-sm mb-3">Get Cluster suggestions with advanced tools</h6>
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-3">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleGoogleKgSuggestion(categoryName, clusterId)}
+                          disabled={isGoogleKgLoading}
+                          title="Use Knowledge Graph for suggestions"
+                          className="flex items-center gap-2 bg-blue-100 hover:bg-blue-200 text-blue-800 border-blue-300"
+                        >
+                          {isGoogleKgLoading ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Network className="w-4 h-4" />
+                          )}
+                          Use Knowledge Graph
+                        </Button>
+
+                        <div className="h-8 w-0.5 bg-gray-400 dark:bg-gray-500" />
+
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleLlmSuggestion(categoryName, clusterId)}
+                          disabled={isLlmLoading || !llmPrompts[clusterKey]?.trim()}
+                          title="Use LLM for suggestions"
+                          className="flex items-center gap-2 bg-green-100 hover:bg-green-200 text-green-800 border-green-300"
+                        >
+                          {isLlmLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+                          Use LLM
+                        </Button>
+
+                        <div className="flex-1">
+                          <Input
+                            placeholder="Enter context prompt for LLM"
+                            value={llmPrompts[clusterKey] || ""}
+                            onChange={(e) => setLlmPrompts((prev) => ({ ...prev, [clusterKey]: e.target.value }))}
+                            className="text-sm h-8"
+                          />
+                        </div>
+                      </div>
+
+                      <p className="text-xs text-gray-500">For example: This is a famous car brand</p>
+                    </div>
+                  </div>
+
+                  {/* Section 2: Manual Custom value for cluster */}
+                  <div className="border rounded-lg p-3 bg-gray-50 dark:bg-gray-900">
+                    <h6 className="font-medium text-sm mb-3">Manual Custom value for cluster</h6>
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1">
+                        <Input
+                          placeholder="Enter custom value for all items in this cluster"
+                          value={clusterCustomValues[clusterKey] || ""}
+                          onChange={(e) =>
+                            setClusterCustomValues((prev) => ({ ...prev, [clusterKey]: e.target.value }))
+                          }
+                          className="text-sm h-8"
+                        />
+                      </div>
+                      <Button
+                        size="sm"
+                        onClick={() =>
+                          handleClusterCustomValue(categoryName, clusterId, clusterCustomValues[clusterKey])
+                        }
+                        disabled={!clusterCustomValues[clusterKey]?.trim()}
+                        title="Apply custom value to all items in cluster"
+                      >
+                        <Check className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Restore Original Button - At the bottom */}
+                  <div className="flex justify-center">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => handleRestoreOriginalSuggestion(categoryName, clusterId)}
+                      title="Restore original suggestion"
+                      className="flex items-center gap-2"
+                    >
+                      <RefreshCw className="w-4 h-4" />
+                      Restore original
+                    </Button>
+                  </div>
+                </div>
               </div>
 
               {/* Cluster Content - Collapsible */}
@@ -373,7 +682,7 @@ export function CleaningStepEnhanced({
                                           [editKey]: e.target.value,
                                         }))
                                       }
-                                      className="text-sm"
+                                      className="text-sm h-8"
                                       placeholder="Enter custom value"
                                       autoFocus
                                     />
@@ -457,9 +766,14 @@ export function CleaningStepEnhanced({
   }
 
   // Get tab names based on useCategory
-  const tabNames = cleaningData.useCategory ? Object.keys(cleaningData.groupedData) : columns.map((col) => col.name)
+  const tabNames =
+    cleaningData?.useCategory && cleaningData?.groupedData
+      ? Object.keys(cleaningData.groupedData)
+      : columns?.map((col) => col.name) || []
 
   const getTabItemCount = (tabName: string) => {
+    if (!cleaningData?.groupedData) return 0
+
     if (cleaningData.useCategory) {
       return Object.keys(cleaningData.groupedData[tabName] || {}).length
     } else {
@@ -481,16 +795,17 @@ export function CleaningStepEnhanced({
             <div className="text-right">
               <div className="text-2xl font-bold text-blue-600">Ready</div>
               <p className="text-sm text-gray-600">
-                {cleaningData.groupedData &&
-                Object.values(cleaningData.groupedData).reduce(
-                  (total, categoryData) =>
-                    total +
-                    Object.values(categoryData).reduce(
-                      (catTotal, cluster) => catTotal + (cluster.exceptions?.length || 0),
+                {cleaningData?.groupedData
+                  ? Object.values(cleaningData.groupedData).reduce(
+                      (total, categoryData) =>
+                        total +
+                        Object.values(categoryData).reduce(
+                          (catTotal, cluster) => catTotal + (cluster.exceptions?.length || 0),
+                          0,
+                        ),
                       0,
-                    ),
-                  0,
-                )}{" "}
+                    )
+                  : 0}{" "}
                 custom edits
               </p>
             </div>
@@ -501,9 +816,9 @@ export function CleaningStepEnhanced({
       {/* Column/Category Cleaning */}
       <Card>
         <CardHeader>
-          <CardTitle>{cleaningData.useCategory ? "Category Cleaning" : "Column Cleaning"}</CardTitle>
+          <CardTitle>{cleaningData?.useCategory ? "Category Cleaning" : "Column Cleaning"}</CardTitle>
           <CardDescription>
-            Review and edit cleaning suggestions for each {cleaningData.useCategory ? "category" : "column"}. Click on
+            Review and edit cleaning suggestions for each {cleaningData?.useCategory ? "category" : "column"}. Click on
             cluster headers to expand/collapse. All items will be processed with their final values when you continue.
           </CardDescription>
         </CardHeader>
@@ -513,10 +828,8 @@ export function CleaningStepEnhanced({
             <div className="mb-6">
               <TabsList className="h-auto p-1 bg-muted rounded-md flex flex-wrap gap-1">
                 {tabNames.map((tabName) => {
-                  // const itemCount = cleaningData
-                  //   ? Object.keys(cleaningData.groupedData[tabName] || {}).length
-                  //   : 0
                   const itemCount = getTabItemCount(tabName)
+
                   return (
                     <TabsTrigger
                       key={tabName}
@@ -539,12 +852,12 @@ export function CleaningStepEnhanced({
                   <h4 className="font-medium">Cleaning suggestions for "{tabName}"</h4>
                 </div>
 
-                {cleaningData.groupedData[tabName] ? (
+                {cleaningData?.groupedData?.[tabName] ? (
                   renderClusterContent(tabName, cleaningData.groupedData[tabName])
                 ) : (
                   <div className="text-center py-8 text-gray-500">
                     <p>
-                      No cleaning suggestions available for this {cleaningData.useCategory ? "category" : "column"}.
+                      No cleaning suggestions available for this {cleaningData?.useCategory ? "category" : "column"}.
                     </p>
                     <p className="text-sm">The data appears to be already clean!</p>
                   </div>

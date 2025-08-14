@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Download, RotateCcw, CheckCircle, BarChart3, ChevronLeft, ChevronRight } from "lucide-react"
+import { Input } from "@/components/ui/input"
+import { Download, RotateCcw, CheckCircle, BarChart3, ChevronLeft, ChevronRight, Search, X } from "lucide-react"
 
 interface ExportStepProps {
   originalData: any[]
@@ -37,6 +38,7 @@ export function ExportStepEnhanced({
   const [downloading, setDownloading] = useState(false)
   const [currentPage, setCurrentPage] = useState(0)
   const [activeTab, setActiveTab] = useState("cleaned")
+  const [searchTerm, setSearchTerm] = useState("")
   const itemsPerPage = 10
 
   const totalCorrections = useMemo(() => {
@@ -51,12 +53,34 @@ export function ExportStepEnhanced({
     return activeTab === "cleaned" ? cleaningData.cleanedData : cleaningData.originalData
   }, [activeTab, cleaningData.cleanedData, cleaningData.originalData])
 
+  // Filter data based on search term
+  const filteredData = useMemo(() => {
+    if (!searchTerm.trim() || !currentData) return currentData
+
+    return currentData.filter((row) => {
+      return Object.values(row).some((value) =>
+        String(value || "").toLowerCase().includes(searchTerm.toLowerCase())
+      )
+    })
+  }, [currentData, searchTerm])
+
   const paginatedData = useMemo(() => {
     const startIndex = currentPage * itemsPerPage
-    return currentData?.slice(startIndex, startIndex + itemsPerPage) || []
-  }, [currentData, currentPage, itemsPerPage])
+    return filteredData?.slice(startIndex, startIndex + itemsPerPage) || []
+  }, [filteredData, currentPage, itemsPerPage])
 
-  const totalPages = Math.ceil((currentData?.length || 0) / itemsPerPage)
+  const totalPages = Math.ceil((filteredData?.length || 0) / itemsPerPage)
+
+  // Reset to first page when search term changes
+  const handleSearchChange = (value: string) => {
+    setSearchTerm(value)
+    setCurrentPage(0)
+  }
+
+  const clearSearch = () => {
+    setSearchTerm("")
+    setCurrentPage(0)
+  }
 
   const downloadCSV = async () => {
     setDownloading(true)
@@ -201,6 +225,34 @@ export function ExportStepEnhanced({
               <TabsTrigger value="original">Original Data</TabsTrigger>
             </TabsList>
 
+            {/* Search Box */}
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1 max-w-md">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500" />
+                <Input
+                  placeholder="Search through data..."
+                  value={searchTerm}
+                  onChange={(e) => handleSearchChange(e.target.value)}
+                  className="pl-10 pr-10"
+                />
+                {searchTerm && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={clearSearch}
+                    className="absolute right-1 top-1/2 h-7 w-7 -translate-y-1/2 p-0 hover:bg-gray-100"
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                )}
+              </div>
+              {searchTerm && (
+                <Badge variant="secondary" className="whitespace-nowrap">
+                  {filteredData?.length || 0} of {currentData?.length || 0} rows
+                </Badge>
+              )}
+            </div>
+
             <TabsContent value="cleaned" className="space-y-4">
               <div className="overflow-x-auto">
                 <Table>
@@ -212,15 +264,23 @@ export function ExportStepEnhanced({
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {paginatedData.map((row, index) => (
-                      <TableRow key={index}>
-                        {Object.keys(row).map((key) => (
-                          <TableCell key={key} className="max-w-xs truncate">
-                            {row[key] || "-"}
-                          </TableCell>
-                        ))}
+                    {paginatedData.length > 0 ? (
+                      paginatedData.map((row, index) => (
+                        <TableRow key={index}>
+                          {Object.keys(row).map((key) => (
+                            <TableCell key={key} className="max-w-xs truncate">
+                              {row[key] || "-"}
+                            </TableCell>
+                          ))}
+                        </TableRow>
+                      ))
+                    ) : (
+                      <TableRow>
+                        <TableCell colSpan={Object.keys(currentData?.[0] || {}).length} className="text-center py-8 text-gray-500">
+                          {searchTerm ? "No results found for your search" : "No data available"}
+                        </TableCell>
                       </TableRow>
-                    ))}
+                    )}
                   </TableBody>
                 </Table>
               </div>
@@ -237,65 +297,75 @@ export function ExportStepEnhanced({
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {paginatedData.map((row, index) => (
-                      <TableRow key={index}>
-                        {Object.keys(row).map((key) => (
-                          <TableCell key={key} className="max-w-xs truncate">
-                            {row[key] || "-"}
-                          </TableCell>
-                        ))}
+                    {paginatedData.length > 0 ? (
+                      paginatedData.map((row, index) => (
+                        <TableRow key={index}>
+                          {Object.keys(row).map((key) => (
+                            <TableCell key={key} className="max-w-xs truncate">
+                              {row[key] || "-"}
+                            </TableCell>
+                          ))}
+                        </TableRow>
+                      ))
+                    ) : (
+                      <TableRow>
+                        <TableCell colSpan={Object.keys(currentData?.[0] || {}).length} className="text-center py-8 text-gray-500">
+                          {searchTerm ? "No results found for your search" : "No data available"}
+                        </TableCell>
                       </TableRow>
-                    ))}
+                    )}
                   </TableBody>
                 </Table>
               </div>
             </TabsContent>
 
             {/* Pagination Controls */}
-            <div className="flex items-center justify-between">
-              <p className="text-sm text-gray-600">
-                Showing {currentPage * itemsPerPage + 1} to{" "}
-                {Math.min((currentPage + 1) * itemsPerPage, currentData?.length || 0)} of {currentData?.length || 0}{" "}
-                rows
-              </p>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handlePageChange("start")}
-                  disabled={currentPage === 0}
-                >
-                  Start
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handlePageChange("prev")}
-                  disabled={currentPage === 0}
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                </Button>
-                <span className="text-sm">
-                  Page {currentPage + 1} of {totalPages}
-                </span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handlePageChange("next")}
-                  disabled={currentPage >= totalPages - 1}
-                >
-                  <ChevronRight className="w-4 h-4" />
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handlePageChange("end")}
-                  disabled={currentPage >= totalPages - 1}
-                >
-                  End
-                </Button>
+            {filteredData && filteredData.length > 0 && (
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-gray-600">
+                  Showing {currentPage * itemsPerPage + 1} to{" "}
+                  {Math.min((currentPage + 1) * itemsPerPage, filteredData?.length || 0)} of {filteredData?.length || 0}{" "}
+                  {searchTerm ? "filtered" : ""} rows
+                </p>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handlePageChange("start")}
+                    disabled={currentPage === 0}
+                  >
+                    Start
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handlePageChange("prev")}
+                    disabled={currentPage === 0}
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </Button>
+                  <span className="text-sm">
+                    Page {currentPage + 1} of {totalPages}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handlePageChange("next")}
+                    disabled={currentPage >= totalPages - 1}
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handlePageChange("end")}
+                    disabled={currentPage >= totalPages - 1}
+                  >
+                    End
+                  </Button>
+                </div>
               </div>
-            </div>
+            )}
           </Tabs>
         </CardContent>
       </Card>
