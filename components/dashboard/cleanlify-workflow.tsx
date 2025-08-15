@@ -40,7 +40,7 @@ export function CleanlifyWorkflow() {
       // formData.append("fileType", uploadedFileType)
 
       // Mock API call - replace with your actual API endpoint
-      const response = await fetch("http://localhost:8080/analyze?limit=all", {
+      const response = await fetch("http://localhost:8080/analyze?limit=100", {
         method: "POST",
         body: formData,
       })
@@ -193,6 +193,7 @@ export function CleanlifyWorkflow() {
           <CleaningStepEnhanced
             columns={columns.filter((col) => selectedColumns.includes(col.name))}
             // selectedDomain={selectedDomain}
+            selectedColumns={selectedColumns}
             rawData={rawData}
             cleaningData={cleaningData}
             onContinue={handleCleaningContinue}

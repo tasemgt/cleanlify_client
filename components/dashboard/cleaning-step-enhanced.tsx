@@ -1,11 +1,13 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Slider } from "@/components/ui/slider"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/hooks/use-toast"
 import {
   Check,
@@ -22,6 +24,7 @@ import {
   RefreshCw,
   Network,
   Zap,
+  Settings,
 } from "lucide-react"
 import type { ColumnInfo } from "@/app/page"
 
@@ -56,36 +59,54 @@ interface CleaningResponse {
   status: string
   useCategory: boolean
   groupedData: GroupedData
+  categoryColumn?: string
 }
 
 interface CleaningStepEnhancedProps {
   columns: ColumnInfo[]
   rawData: any[]
   cleaningData: CleaningResponse
+  selectedColumns: ColumnInfo[]
+  categoryColumn?: string
   onContinue: (cleaningData: CleaningResponse) => void
   onBack?: () => void
 }
 
-export function CleaningStepEnhanced({
+const matchModeOptions = [
+    { value: "ratio", label: "Strict Match (Order-sensitive)" },
+    { value: "token_sort_ratio", label: "Matches short phrases (Order-insensitive)" },
+    { value: "token_set_ratio", label: "Matches word/phrases as subsets" },
+    { value: "partial_token_sort_ratio", label: "Matches phrases with extra words" },
+  ]
+
+function CleaningStepEnhanced({
+  cleaningData,
+  onBack,
+  onContinue,
   columns,
   rawData,
-  cleaningData: initialCleaningData,
-  onContinue,
-  onBack,
+  selectedColumns,
 }: CleaningStepEnhancedProps) {
   const { toast } = useToast()
 
-  const [cleaningData, setCleaningData] = useState<CleaningResponse>(initialCleaningData)
+  const [currentCleaningData, setCurrentCleaningData] = useState<CleaningResponse>(cleaningData)
   const [editingValues, setEditingValues] = useState<{ [key: string]: string }>({})
   const [isLoading, setIsLoading] = useState(false)
   const [currentPages, setCurrentPages] = useState<{ [key: string]: number }>({})
   const [expandedClusters, setExpandedClusters] = useState<{ [key: string]: boolean }>({})
   const [clusterCustomValues, setClusterCustomValues] = useState<{ [key: string]: string }>({})
-  const [clusterLoadingStates, setClusterLoadingStates] = useState<{ [key: string]: boolean }>({})
   const [originalSuggestions, setOriginalSuggestions] = useState<{ [key: string]: string }>({})
   const [llmPrompts, setLlmPrompts] = useState<{ [key: string]: string }>({})
   const [googleKgLoadingStates, setGoogleKgLoadingStates] = useState<{ [key: string]: boolean }>({})
   const [llmLoadingStates, setLlmLoadingStates] = useState<{ [key: string]: boolean }>({})
+  const [similarityThreshold, setSimilarityThreshold] = useState([75])
+  const [matchMode, setMatchMode] = useState("ratio")
+  const [isRematching, setIsRematching] = useState(false)
+  const [activeTab, setActiveTab] = useState<string>("")
+
+  useEffect(() => {
+    setCurrentCleaningData(cleaningData)
+  }, [cleaningData])
 
   const itemsPerPage = 10
 
@@ -105,80 +126,151 @@ export function CleaningStepEnhanced({
 
   const isClusterExpanded = (categoryName: string, clusterId: string) => {
     const key = `${categoryName}-${clusterId}`
-    return expandedClusters[key] ?? true // Default to expanded
+    return expandedClusters[key] ?? true
+  }
+
+  const handleRematchClusters = async () => {
+    setIsRematching(true)
+    try {
+      const endpoint = cleaningData.useCategory
+        ? `http://localhost:8080/group_by_category?threshold=${similarityThreshold[0]}&match_mode=${matchMode}`
+        : `http://localhost:8080/group_in_column?threshold=${similarityThreshold[0]}&match_mode=${matchMode}`
+
+      const payload = {
+        rawData,
+        selectedColumns,
+        useCategory: cleaningData.useCategory,
+        categoryColumn: cleaningData.categoryColumn || null,
+      }
+
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to rematch clusters")
+      }
+
+      const result = await response.json()
+
+      setCurrentCleaningData(result)
+
+      if (result.groupedData && Object.keys(result.groupedData).length > 0) {
+        const newTabNames = result.useCategory ? Object.keys(result.groupedData) : columns?.map((col) => col.name) || []
+        if (newTabNames.length > 0) {
+          setActiveTab(newTabNames[0])
+        }
+      }
+
+      setOriginalSuggestions({})
+      setClusterCustomValues({})
+      setEditingValues({})
+      setCurrentPages({})
+
+      toast({
+        title: "Success",
+        description: "Clusters rematched successfully with new similarity settings!",
+      })
+    } catch (error) {
+      console.error("Failed to rematch clusters:", error)
+      toast({
+        title: "Error",
+        description: "Failed to rematch clusters. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsRematching(false)
+    }
   }
 
   const handleCustomEdit = (categoryName: string, clusterId: string, memberIndex: number, customValue: string) => {
     if (!customValue || customValue.trim() === "") return
 
-    setCleaningData((prev) => {
-      const newData = { ...prev }
-      const cluster = newData.groupedData[categoryName][clusterId]
+    setCurrentCleaningData((prev) => {
+      const cluster = prev.groupedData[categoryName][clusterId]
+      const existingExceptions = cluster.exceptions || []
 
-      // Initialize exceptions array if it doesn't exist
-      if (!cluster.exceptions) {
-        cluster.exceptions = []
+      // Remove existing exception for this member if it exists
+      const filteredExceptions = existingExceptions.filter((exc) => exc.index !== memberIndex)
+
+      // Add new exception
+      const newExceptions = [...filteredExceptions, { index: memberIndex, value: customValue.trim() }]
+
+      return {
+        ...prev,
+        groupedData: {
+          ...prev.groupedData,
+          [categoryName]: {
+            ...prev.groupedData[categoryName],
+            [clusterId]: {
+              ...prev.groupedData[categoryName][clusterId],
+              exceptions: newExceptions,
+            },
+          },
+        },
       }
+    })
 
-      // Remove existing exception for this index if any
-      cluster.exceptions = cluster.exceptions.filter((exc) => exc.index !== memberIndex)
+    // Clear editing state
+    const editKey = `${categoryName}-${clusterId}-${memberIndex}`
+    setEditingValues((prev) => {
+      const newValues = { ...prev }
+      delete newValues[editKey]
+      return newValues
+    })
 
-      // Add new exception with custom value
-      cluster.exceptions.push({
-        index: memberIndex,
-        value: customValue,
-      })
-
-      return newData
+    toast({
+      title: "Success",
+      description: "Custom value applied successfully!",
     })
   }
 
   const handleRevertToSuggestion = (categoryName: string, clusterId: string, memberIndex: number) => {
-    setCleaningData((prev) => {
-      const newData = { ...prev }
-      const cluster = newData.groupedData[categoryName][clusterId]
+    setCurrentCleaningData((prev) => {
+      const cluster = prev.groupedData[categoryName][clusterId]
+      const existingExceptions = cluster.exceptions || []
 
-      if (cluster.exceptions) {
-        // Remove exception for this index to revert to suggestion
-        cluster.exceptions = cluster.exceptions.filter((exc) => exc.index !== memberIndex)
+      // Remove exception for this member
+      const filteredExceptions = existingExceptions.filter((exc) => exc.index !== memberIndex)
+
+      return {
+        ...prev,
+        groupedData: {
+          ...prev.groupedData,
+          [categoryName]: {
+            ...prev.groupedData[categoryName],
+            [clusterId]: {
+              ...prev.groupedData[categoryName][clusterId],
+              exceptions: filteredExceptions.length > 0 ? filteredExceptions : undefined,
+            },
+          },
+        },
       }
-
-      return newData
     })
 
-    // Clear any editing state for this item
     const editKey = `${categoryName}-${clusterId}-${memberIndex}`
     setEditingValues((prev) => {
       const newValues = { ...prev }
       delete newValues[editKey]
       return newValues
     })
-  }
 
-  const handleStartEdit = (categoryName: string, clusterId: string, memberIndex: number, currentValue: string) => {
-    const editKey = `${categoryName}-${clusterId}-${memberIndex}`
-    setEditingValues((prev) => ({
-      ...prev,
-      [editKey]: currentValue || "",
-    }))
-  }
-
-  const handleCancelEdit = (categoryName: string, clusterId: string, memberIndex: number) => {
-    const editKey = `${categoryName}-${clusterId}-${memberIndex}`
-    setEditingValues((prev) => {
-      const newValues = { ...prev }
-      delete newValues[editKey]
-      return newValues
+    toast({
+      title: "Success",
+      description: "Reverted to suggested value!",
     })
   }
 
   const getTotalSuggestions = () => {
-    if (!cleaningData?.groupedData) return 0
+    if (!currentCleaningData?.groupedData) return 0
 
     let total = 0
-    Object.values(cleaningData.groupedData).forEach((categoryData) => {
+    Object.values(currentCleaningData.groupedData).forEach((categoryData) => {
       Object.values(categoryData).forEach((cluster) => {
-        // Only count non-empty members
         if (cluster.members) {
           total += cluster.members.filter((member) => member.value && member.value.trim() !== "").length
         }
@@ -187,32 +279,16 @@ export function CleaningStepEnhanced({
     return total
   }
 
-  const getProcessedSuggestions = () => {
-    if (!cleaningData?.groupedData) return 0
-
-    let processed = 0
-    Object.values(cleaningData.groupedData).forEach((categoryData) => {
-      Object.values(categoryData).forEach((cluster) => {
-        if (cluster.members) {
-          // Count all non-empty members as processed (they will all be sent to API)
-          processed += cluster.members.filter((member) => member.value && member.value.trim() !== "").length
-        }
-      })
-    })
-    return processed
-  }
-
   const handleContinue = async () => {
     setIsLoading(true)
+    console.log("Current cleaning data:", currentCleaningData)
     try {
-      // Send the cleaning data back to the API
-      console.log("Sending cleaning data:", cleaningData)
       const response = await fetch("http://localhost:8080/apply_cleaning", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(cleaningData),
+        body: JSON.stringify(currentCleaningData),
       })
 
       if (!response.ok) {
@@ -298,34 +374,37 @@ export function CleaningStepEnhanced({
 
     const clusterKey = `${categoryName}-${clusterId}`
 
-    const cluster = cleaningData.groupedData[categoryName][clusterId]
-
-      setOriginalSuggestions((prev) => {
-        if (!prev[clusterKey]) {
-          return {
-            ...prev,
-            [clusterKey]: cluster.suggestion,
-          }
+    setOriginalSuggestions((prev) => {
+      if (!prev[clusterKey]) {
+        return {
+          ...prev,
+          [clusterKey]: currentCleaningData.groupedData[categoryName][clusterId].suggestion,
         }
-        return prev
-      })
-
-    setCleaningData((prev) => {
-      const newData = { ...prev }
-      const cluster = newData.groupedData[categoryName][clusterId]
-
-      // Update the cluster suggestion with custom value
-      cluster.suggestion = customValue
-      cluster.suggestion_mode = "custom_clean"
-
-      // Clear any existing exceptions since we're applying to all
-      cluster.exceptions = []
-
-      return newData
+      }
+      return prev
     })
 
-    // Clear the input
+    setCurrentCleaningData((prev) => ({
+      ...prev,
+      groupedData: {
+        ...prev.groupedData,
+        [categoryName]: {
+          ...prev.groupedData[categoryName],
+          [clusterId]: {
+            ...prev.groupedData[categoryName][clusterId],
+            suggestion: customValue.trim(),
+            suggestion_mode: "custom",
+          },
+        },
+      },
+    }))
+
     setClusterCustomValues((prev) => ({ ...prev, [clusterKey]: "" }))
+
+    toast({
+      title: "Success",
+      description: "Custom value applied to cluster successfully!",
+    })
   }
 
   const handleRestoreOriginalSuggestion = (categoryName: string, clusterId: string) => {
@@ -333,16 +412,30 @@ export function CleaningStepEnhanced({
     const originalSuggestion = originalSuggestions[clusterKey]
 
     if (originalSuggestion) {
-      setCleaningData((prev) => {
-        const newData = { ...prev }
-        const cluster = newData.groupedData[categoryName][clusterId]
+      setCurrentCleaningData((prev) => ({
+        ...prev,
+        groupedData: {
+          ...prev.groupedData,
+          [categoryName]: {
+            ...prev.groupedData[categoryName],
+            [clusterId]: {
+              ...prev.groupedData[categoryName][clusterId],
+              suggestion: originalSuggestion,
+              suggestion_mode: "suggested",
+            },
+          },
+        },
+      }))
 
-        cluster.suggestion = originalSuggestion
-        cluster.suggestion_mode = "suggested"
-        // Clear any exceptions
-        cluster.exceptions = []
+      setOriginalSuggestions((prev) => {
+        const newSuggestions = { ...prev }
+        delete newSuggestions[clusterKey]
+        return newSuggestions
+      })
 
-        return newData
+      toast({
+        title: "Success",
+        description: "Original suggestion restored successfully!",
       })
     }
   }
@@ -352,7 +445,7 @@ export function CleaningStepEnhanced({
     setGoogleKgLoadingStates((prev) => ({ ...prev, [clusterKey]: true }))
 
     try {
-      const cluster = cleaningData.groupedData[categoryName][clusterId]
+      const cluster = currentCleaningData.groupedData[categoryName][clusterId]
 
       setOriginalSuggestions((prev) => {
         if (!prev[clusterKey]) {
@@ -382,18 +475,22 @@ export function CleaningStepEnhanced({
 
       const result = await response.json()
 
-      setCleaningData((prev) => {
-        const newData = { ...prev }
-        const cluster = newData.groupedData[categoryName][clusterId]
-
-        cluster.suggestion = result.suggestion
-        cluster.suggestion_mode = "google_kg"
-
-        // Clear any exceptions since we're applying new suggestion to all
-        cluster.exceptions = []
-
-        return newData
-      })
+      if (result.suggestion) {
+        setCurrentCleaningData((prev) => ({
+          ...prev,
+          groupedData: {
+            ...prev.groupedData,
+            [categoryName]: {
+              ...prev.groupedData[categoryName],
+              [clusterId]: {
+                ...prev.groupedData[categoryName][clusterId],
+                suggestion: result.suggestion,
+                suggestion_mode: "google_kg",
+              },
+            },
+          },
+        }))
+      }
 
       toast({
         title: "Success",
@@ -427,7 +524,7 @@ export function CleaningStepEnhanced({
     setLlmLoadingStates((prev) => ({ ...prev, [clusterKey]: true }))
 
     try {
-      const cluster = cleaningData.groupedData[categoryName][clusterId]
+      const cluster = currentCleaningData.groupedData[categoryName][clusterId]
 
       setOriginalSuggestions((prev) => {
         if (!prev[clusterKey]) {
@@ -458,18 +555,22 @@ export function CleaningStepEnhanced({
 
       const result = await response.json()
 
-      setCleaningData((prev) => {
-        const newData = { ...prev }
-        const cluster = newData.groupedData[categoryName][clusterId]
-
-        cluster.suggestion = result.suggestion
-        cluster.suggestion_mode = "llm_suggest"
-
-        // Clear any exceptions since we're applying new suggestion to all
-        cluster.exceptions = []
-
-        return newData
-      })
+      if (result.suggestion) {
+        setCurrentCleaningData((prev) => ({
+          ...prev,
+          groupedData: {
+            ...prev.groupedData,
+            [categoryName]: {
+              ...prev.groupedData[categoryName],
+              [clusterId]: {
+                ...prev.groupedData[categoryName][clusterId],
+                suggestion: result.suggestion,
+                suggestion_mode: "llm_suggest",
+              },
+            },
+          },
+        }))
+      }
 
       toast({
         title: "Success",
@@ -487,6 +588,20 @@ export function CleaningStepEnhanced({
     }
   }
 
+  const handleCancelEdit = (categoryName: string, clusterId: string, memberIndex: number) => {
+    const editKey = `${categoryName}-${clusterId}-${memberIndex}`
+    setEditingValues((prev) => {
+      const newValues = { ...prev }
+      delete newValues[editKey]
+      return newValues
+    })
+  }
+
+  const handleStartEdit = (categoryName: string, clusterId: string, memberIndex: number, finalValue: string) => {
+    const editKey = `${categoryName}-${clusterId}-${memberIndex}`
+    setEditingValues((prev) => ({ ...prev, [editKey]: finalValue }))
+  }
+
   const renderClusterContent = (categoryName: string, categoryData: CategoryData) => {
     const clusters = Object.entries(categoryData)
     const currentPage = getCurrentPage(categoryName)
@@ -497,10 +612,8 @@ export function CleaningStepEnhanced({
     return (
       <div className="space-y-4">
         {paginatedClusters.map(([clusterId, cluster]) => {
-          // Filter out empty members for display but keep them in the data
           const displayMembers = cluster.members?.filter((member) => member.value && member.value.trim() !== "")
 
-          // Skip clusters with no displayable members
           if (!displayMembers || displayMembers.length === 0) return null
 
           const isExpanded = isClusterExpanded(categoryName, clusterId)
@@ -511,7 +624,6 @@ export function CleaningStepEnhanced({
 
           return (
             <div key={clusterId} className="border rounded-lg">
-              {/* Cluster Header - Always Visible */}
               <div className="p-4">
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex-1">
@@ -539,7 +651,6 @@ export function CleaningStepEnhanced({
                 </div>
 
                 <div className="space-y-4">
-                  {/* Section 1: Get Cluster suggestions with advanced tools */}
                   <div className="border rounded-lg p-3 bg-gray-50 dark:bg-gray-900">
                     <h6 className="font-medium text-sm mb-3">Get Cluster suggestions with advanced tools</h6>
                     <div className="space-y-3">
@@ -588,7 +699,6 @@ export function CleaningStepEnhanced({
                     </div>
                   </div>
 
-                  {/* Section 2: Manual Custom value for cluster */}
                   <div className="border rounded-lg p-3 bg-gray-50 dark:bg-gray-900">
                     <h6 className="font-medium text-sm mb-3">Manual Custom value for cluster</h6>
                     <div className="flex items-center gap-2">
@@ -596,9 +706,9 @@ export function CleaningStepEnhanced({
                         <Input
                           placeholder="Enter custom value for all items in this cluster"
                           value={clusterCustomValues[clusterKey] || ""}
-                          onChange={(e) =>
+                          onChange={(e) => {
                             setClusterCustomValues((prev) => ({ ...prev, [clusterKey]: e.target.value }))
-                          }
+                          }}
                           className="text-sm h-8"
                         />
                       </div>
@@ -615,7 +725,6 @@ export function CleaningStepEnhanced({
                     </div>
                   </div>
 
-                  {/* Restore Original Button - At the bottom */}
                   <div className="flex justify-center">
                     <Button
                       size="sm"
@@ -623,6 +732,7 @@ export function CleaningStepEnhanced({
                       onClick={() => handleRestoreOriginalSuggestion(categoryName, clusterId)}
                       title="Restore original suggestion"
                       className="flex items-center gap-2"
+                      disabled={!originalSuggestions[clusterKey]}
                     >
                       <RefreshCw className="w-4 h-4" />
                       Restore original
@@ -631,12 +741,10 @@ export function CleaningStepEnhanced({
                 </div>
               </div>
 
-              {/* Cluster Content - Collapsible */}
               {isExpanded && (
                 <div className="border-t p-4">
                   <div className="space-y-3">
                     {displayMembers.map((member, displayIndex) => {
-                      // Find the original index in the full members array
                       const originalIndex = cluster.members?.findIndex(
                         (m) =>
                           m.value === member.value &&
@@ -759,32 +867,34 @@ export function CleaningStepEnhanced({
           </div>
         )}
 
-        {/* Pagination Controls */}
         {renderPaginationControls(categoryName, clusters.length)}
       </div>
     )
   }
 
-  // Get tab names based on useCategory
   const tabNames =
-    cleaningData?.useCategory && cleaningData?.groupedData
-      ? Object.keys(cleaningData.groupedData)
+    currentCleaningData?.useCategory && currentCleaningData?.groupedData
+      ? Object.keys(currentCleaningData.groupedData)
       : columns?.map((col) => col.name) || []
 
   const getTabItemCount = (tabName: string) => {
-    if (!cleaningData?.groupedData) return 0
+    if (!currentCleaningData?.groupedData) return 0
 
-    if (cleaningData.useCategory) {
-      return Object.keys(cleaningData.groupedData[tabName] || {}).length
+    if (currentCleaningData.useCategory) {
+      return Object.keys(currentCleaningData.groupedData[tabName] || {}).length
     } else {
-      // For column cleaning, count clusters in the column
-      return Object.keys(cleaningData.groupedData[tabName] || {}).length
+      return Object.keys(currentCleaningData.groupedData[tabName] || {}).length
     }
   }
 
+  useEffect(() => {
+    if (tabNames.length > 0 && !activeTab) {
+      setActiveTab(tabNames[0])
+    }
+  }, [tabNames, activeTab])
+
   return (
     <div className="space-y-6">
-      {/* Progress Summary */}
       <Card>
         <CardContent className="p-6">
           <div className="flex items-center justify-between">
@@ -795,8 +905,8 @@ export function CleaningStepEnhanced({
             <div className="text-right">
               <div className="text-2xl font-bold text-blue-600">Ready</div>
               <p className="text-sm text-gray-600">
-                {cleaningData?.groupedData
-                  ? Object.values(cleaningData.groupedData).reduce(
+                {currentCleaningData?.groupedData
+                  ? Object.values(currentCleaningData.groupedData).reduce(
                       (total, categoryData) =>
                         total +
                         Object.values(categoryData).reduce(
@@ -813,18 +923,81 @@ export function CleaningStepEnhanced({
         </CardContent>
       </Card>
 
-      {/* Column/Category Cleaning */}
       <Card>
         <CardHeader>
-          <CardTitle>{cleaningData?.useCategory ? "Category Cleaning" : "Column Cleaning"}</CardTitle>
+          <CardTitle>{currentCleaningData?.useCategory ? "Category Cleaning" : "Column Cleaning"}</CardTitle>
           <CardDescription>
-            Review and edit cleaning suggestions for each {cleaningData?.useCategory ? "category" : "column"}. Click on
-            cluster headers to expand/collapse. All items will be processed with their final values when you continue.
+            Review and edit cleaning suggestions for each {currentCleaningData?.useCategory ? "category" : "column"}.
+            Click on cluster headers to expand/collapse. All items will be processed with their final values when you
+            continue.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Tabs defaultValue={tabNames[0]} className="w-full">
-            {/* Wrapping tabs for many categories/columns */}
+          <div className="mb-6 p-4 border rounded-lg bg-gray-50 dark:bg-gray-900">
+            <div className="flex items-center gap-2 mb-4">
+              <Settings className="w-5 h-5" />
+              <h4 className="font-medium">Similarity Matching Settings</h4>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">
+                  Pick a similarity match sensitivity, 100 being perfect match
+                </label>
+                <div className="px-3">
+                  <Slider
+                    value={similarityThreshold}
+                    onValueChange={setSimilarityThreshold}
+                    max={100}
+                    min={0}
+                    step={5}
+                    className="w-full"
+                  />
+                  <div className="flex justify-between text-xs text-gray-500 mt-1">
+                    <span>0</span>
+                    <span className="font-medium">{similarityThreshold[0]}</span>
+                    <span>100</span>
+                  </div>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Matching Algorithm</label>
+                <Select value={matchMode} onValueChange={setMatchMode}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {matchModeOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Button
+                  onClick={handleRematchClusters}
+                  disabled={isRematching}
+                  className="w-full bg-transparent"
+                  variant="outline"
+                >
+                  {isRematching ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Rematching...
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className="w-4 h-4 mr-2" />
+                      Rematch clusters
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
             <div className="mb-6">
               <TabsList className="h-auto p-1 bg-muted rounded-md flex flex-wrap gap-1">
                 {tabNames.map((tabName) => {
@@ -846,29 +1019,29 @@ export function CleaningStepEnhanced({
               </TabsList>
             </div>
 
-            {tabNames.map((tabName) => (
-              <TabsContent key={tabName} value={tabName} className="space-y-4 mt-6">
+            {activeTab && (
+              <TabsContent key={activeTab} value={activeTab} className="space-y-4 mt-6">
                 <div className="flex justify-between items-center">
-                  <h4 className="font-medium">Cleaning suggestions for "{tabName}"</h4>
+                  <h4 className="font-medium">Cleaning suggestions for "{activeTab}"</h4>
                 </div>
 
-                {cleaningData?.groupedData?.[tabName] ? (
-                  renderClusterContent(tabName, cleaningData.groupedData[tabName])
+                {currentCleaningData?.groupedData?.[activeTab] ? (
+                  renderClusterContent(activeTab, currentCleaningData.groupedData[activeTab])
                 ) : (
                   <div className="text-center py-8 text-gray-500">
                     <p>
-                      No cleaning suggestions available for this {cleaningData?.useCategory ? "category" : "column"}.
+                      No cleaning suggestions available for this{" "}
+                      {currentCleaningData?.useCategory ? "category" : "column"}.
                     </p>
                     <p className="text-sm">The data appears to be already clean!</p>
                   </div>
                 )}
               </TabsContent>
-            ))}
+            )}
           </Tabs>
         </CardContent>
       </Card>
 
-      {/* Navigation Buttons */}
       <div className="flex justify-between">
         {onBack && (
           <Button variant="outline" onClick={onBack} size="lg">
@@ -889,3 +1062,7 @@ export function CleaningStepEnhanced({
     </div>
   )
 }
+
+// Export both default and named export for compatibility
+export default CleaningStepEnhanced
+export { CleaningStepEnhanced }
