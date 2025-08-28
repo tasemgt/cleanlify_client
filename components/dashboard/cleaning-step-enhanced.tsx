@@ -24,7 +24,8 @@ import {
   RefreshCw,
   Network,
   Zap,
-  Settings,
+  Layers,
+  Brain,
 } from "lucide-react"
 import type { ColumnInfo } from "@/app/page"
 
@@ -73,11 +74,11 @@ interface CleaningStepEnhancedProps {
 }
 
 const matchModeOptions = [
-    { value: "ratio", label: "Strict Match (Order-sensitive)" },
-    { value: "token_sort_ratio", label: "Matches short phrases (Order-insensitive)" },
-    { value: "token_set_ratio", label: "Matches word/phrases as subsets" },
-    { value: "partial_token_sort_ratio", label: "Matches phrases with extra words" },
-  ]
+  { value: "ratio", label: "Strict Match (Order-sensitive)" },
+  { value: "token_sort_ratio", label: "Matches short phrases (Order-insensitive)" },
+  { value: "token_set_ratio", label: "Matches word/phrases as subsets" },
+  { value: "partial_token_sort_ratio", label: "Matches phrases with extra words" },
+]
 
 function CleaningStepEnhanced({
   cleaningData,
@@ -96,12 +97,14 @@ function CleaningStepEnhanced({
   const [expandedClusters, setExpandedClusters] = useState<{ [key: string]: boolean }>({})
   const [clusterCustomValues, setClusterCustomValues] = useState<{ [key: string]: string }>({})
   const [originalSuggestions, setOriginalSuggestions] = useState<{ [key: string]: string }>({})
+  const [originalSuggestionMode, setOriginalSuggestionMode] = useState<{ [key: string]: string }>({})
   const [llmPrompts, setLlmPrompts] = useState<{ [key: string]: string }>({})
   const [googleKgLoadingStates, setGoogleKgLoadingStates] = useState<{ [key: string]: boolean }>({})
   const [llmLoadingStates, setLlmLoadingStates] = useState<{ [key: string]: boolean }>({})
   const [similarityThreshold, setSimilarityThreshold] = useState([75])
   const [matchMode, setMatchMode] = useState("ratio")
   const [isRematching, setIsRematching] = useState(false)
+  const [isMLClustering, setIsMLClustering] = useState(false)
   const [activeTab, setActiveTab] = useState<string>("")
 
   useEffect(() => {
@@ -129,12 +132,18 @@ function CleaningStepEnhanced({
     return expandedClusters[key] ?? true
   }
 
-  const handleRematchClusters = async () => {
-    setIsRematching(true)
+  const handleRematchClusters = async (mlMode = false) => {
+    mlMode? setIsMLClustering(true) : setIsRematching(true)
     try {
-      const endpoint = cleaningData.useCategory
-        ? `http://localhost:8080/group_by_category?threshold=${similarityThreshold[0]}&match_mode=${matchMode}`
-        : `http://localhost:8080/group_in_column?threshold=${similarityThreshold[0]}&match_mode=${matchMode}`
+      const baseEndpoint = cleaningData.useCategory ? "group_by_category" : "group_in_column"
+      
+      let endpoint = `http://localhost:8080/${baseEndpoint}`
+      
+      if (mlMode) {
+        endpoint += "?ml_mode=true"
+      } else {
+        endpoint += `?threshold=${similarityThreshold[0]}&match_mode=${matchMode}`
+      }
 
       const payload = {
         rawData,
@@ -157,6 +166,8 @@ function CleaningStepEnhanced({
 
       const result = await response.json()
 
+      console.log("Rematch clusters result:", result)
+
       setCurrentCleaningData(result)
 
       if (result.groupedData && Object.keys(result.groupedData).length > 0) {
@@ -167,13 +178,14 @@ function CleaningStepEnhanced({
       }
 
       setOriginalSuggestions({})
+      setOriginalSuggestionMode({})
       setClusterCustomValues({})
       setEditingValues({})
       setCurrentPages({})
 
       toast({
         title: "Success",
-        description: "Clusters rematched successfully with new similarity settings!",
+        description: mlMode ? "Clusters rematched successfully using ML!" : "Clusters rematched successfully with new similarity settings!",
       })
     } catch (error) {
       console.error("Failed to rematch clusters:", error)
@@ -184,6 +196,7 @@ function CleaningStepEnhanced({
       })
     } finally {
       setIsRematching(false)
+      setIsMLClustering(false)
     }
   }
 
@@ -280,8 +293,8 @@ function CleaningStepEnhanced({
   }
 
   const handleContinue = async () => {
+    console.log("Current Cleaning Data on Continue:", currentCleaningData)
     setIsLoading(true)
-    console.log("Current cleaning data:", currentCleaningData)
     try {
       const response = await fetch("http://localhost:8080/apply_cleaning", {
         method: "POST",
@@ -296,9 +309,12 @@ function CleaningStepEnhanced({
       }
 
       const result = await response.json()
+
+      console.log("Cleaning data processed result:", result)
+
       toast({
         title: "Success",
-        description: "Cleaning data processed successfully!",
+        description: "Data cleaned successfully!",
       })
       await onContinue(result)
     } catch (error) {
@@ -382,7 +398,17 @@ function CleaningStepEnhanced({
         }
       }
       return prev
-    })
+    });
+
+    setOriginalSuggestionMode((prev) => {
+      if (!prev[clusterKey]) {
+        return {
+          ...prev,
+          [clusterKey]: currentCleaningData.groupedData[categoryName][clusterId].suggestion_mode,
+        }
+      }
+      return prev
+    });
 
     setCurrentCleaningData((prev) => ({
       ...prev,
@@ -410,6 +436,7 @@ function CleaningStepEnhanced({
   const handleRestoreOriginalSuggestion = (categoryName: string, clusterId: string) => {
     const clusterKey = `${categoryName}-${clusterId}`
     const originalSuggestion = originalSuggestions[clusterKey]
+      const originalMode = originalSuggestionMode[clusterKey]
 
     if (originalSuggestion) {
       setCurrentCleaningData((prev) => ({
@@ -421,7 +448,7 @@ function CleaningStepEnhanced({
             [clusterId]: {
               ...prev.groupedData[categoryName][clusterId],
               suggestion: originalSuggestion,
-              suggestion_mode: "suggested",
+              suggestion_mode: originalMode || "suggested",
             },
           },
         },
@@ -431,7 +458,13 @@ function CleaningStepEnhanced({
         const newSuggestions = { ...prev }
         delete newSuggestions[clusterKey]
         return newSuggestions
-      })
+      });
+
+      setOriginalSuggestionMode((prev) => {
+        const newModes = { ...prev }
+        delete newModes[clusterKey]
+        return newModes
+      });
 
       toast({
         title: "Success",
@@ -452,6 +485,16 @@ function CleaningStepEnhanced({
           return {
             ...prev,
             [clusterKey]: cluster.suggestion,
+          }
+        }
+        return prev
+      })
+      
+      setOriginalSuggestionMode((prev) => {
+        if (!prev[clusterKey]) {
+          return {
+            ...prev,
+            [clusterKey]: cluster.suggestion_mode,
           }
         }
         return prev
@@ -534,7 +577,17 @@ function CleaningStepEnhanced({
           }
         }
         return prev
-      })
+      });
+
+      setOriginalSuggestionMode((prev) => {
+        if (!prev[clusterKey]) {
+          return {
+            ...prev,
+            [clusterKey]: cluster.suggestion_mode,
+          }
+        }
+        return prev
+      });
 
       const payload = {
         prompt: prompt,
@@ -635,7 +688,7 @@ function CleaningStepEnhanced({
                     </div>
                     <p className="text-sm text-gray-600 mt-1">
                       Suggestion: <span className="font-medium">{cluster.suggestion}</span>
-                      <Badge variant="outline" className="ml-2 text-xs">
+                      <Badge variant="outline" className="ml-2 text-xs bg-yellow-100 text-white-800">
                         {cluster.suggestion_mode}
                       </Badge>
                       {showConfidenceBadge && (
@@ -734,7 +787,7 @@ function CleaningStepEnhanced({
                       className="flex items-center gap-2"
                       disabled={!originalSuggestions[clusterKey]}
                     >
-                      <RefreshCw className="w-4 h-4" />
+                      <RotateCcw className="w-4 h-4" />
                       Restore original
                     </Button>
                   </div>
@@ -826,7 +879,9 @@ function CleaningStepEnhanced({
 
                             {!isEditing && (
                               <div className="flex items-center gap-2">
-                                <ArrowRight className="w-4 h-4 text-gray-400" />
+                                <Button variant="ghost" size="sm">
+                                  <ArrowRight className="w-4 h-4 text-gray-400" />
+                                </Button>
                                 <div className="flex gap-1">
                                   {hasException && (
                                     <Button
@@ -935,27 +990,34 @@ function CleaningStepEnhanced({
         <CardContent>
           <div className="mb-6 p-4 border rounded-lg bg-gray-50 dark:bg-gray-900">
             <div className="flex items-center gap-2 mb-4">
-              <Settings className="w-5 h-5" />
-              <h4 className="font-medium">Similarity Matching Settings</h4>
+              <Layers className="w-5 h-5" />
+              <h4 className="font-medium">Manage Clusters</h4>
             </div>
+
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
               <div className="space-y-2">
                 <label className="text-sm font-medium">
-                  Pick a similarity match sensitivity, 100 being perfect match
+                  Similarity sensitivity, 100 is perfect match
                 </label>
                 <div className="px-3">
-                  <Slider
-                    value={similarityThreshold}
-                    onValueChange={setSimilarityThreshold}
-                    max={100}
-                    min={0}
-                    step={5}
-                    className="w-full"
+                  <input
+                    type="range"
+                    value={similarityThreshold[0]}
+                    onChange={(e) => setSimilarityThreshold([parseInt(e.target.value)])}
+                    min="0"
+                    max="100"
+                    step="5"
+                    className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700 slider"
+                    style={{
+                      background: `linear-gradient(to right, #3b82f6 0%, #3b82f6 ${similarityThreshold[0]}%, #e5e7eb ${similarityThreshold[0]}%, #e5e7eb 100%)`
+                    }}
                   />
                   <div className="flex justify-between text-xs text-gray-500 mt-1">
-                    <span>0</span>
-                    <span className="font-medium">{similarityThreshold[0]}</span>
-                    <span>100</span>
+                    <span>0 (Loose)</span>
+                    <span className="font-medium bg-blue-100 dark:bg-blue-900 px-2 py-1 rounded">
+                      {similarityThreshold[0]}
+                    </span>
+                    <span>100 (Exact)</span>
                   </div>
                 </div>
               </div>
@@ -976,9 +1038,9 @@ function CleaningStepEnhanced({
               </div>
               <div>
                 <Button
-                  onClick={handleRematchClusters}
+                  onClick={() => handleRematchClusters()}
                   disabled={isRematching}
-                  className="w-full bg-transparent"
+                  className="w-full bg-transparent bg-green-100 hover:bg-green-200 border-green-300"
                   variant="outline"
                 >
                   {isRematching ? (
@@ -994,6 +1056,32 @@ function CleaningStepEnhanced({
                   )}
                 </Button>
               </div>
+            </div>
+            
+            <hr className="my-4" />
+            
+            <label className="text-sm font-medium">
+              Re-cluster using Machine Learning
+            </label>
+            <div className="flex justify-start">
+              <Button
+                onClick={() => handleRematchClusters(true)}
+                disabled={isMLClustering}
+                className="flex items-center gap-2 bg-blue-100 hover:bg-blue-200 text-blue-800 border-blue-300"
+                variant="outline"
+              >
+                {isMLClustering ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Clustering...
+                  </>
+                ) : (
+                  <>
+                    <Brain className="w-4 h-4 mr-2"/>
+                    Cluster using ML
+                  </>
+                )}
+              </Button>
             </div>
           </div>
 

@@ -31,19 +31,30 @@ export default function LoginPage() {
         throw new Error("Please fill in all fields")
       }
 
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 1000))
+      const response = await fetch("http://localhost:8080/login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email,
+          password,
+        }),
+      })
 
-      // Mock login - store user data in localStorage
-      const mockUser = {
-        id: "1",
-        name: "Dr. Sarah Johnson",
-        email: email,
-        avatar: "/placeholder.svg?height=40&width=40&text=SJ",
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.message || "Login failed")
       }
 
-      localStorage.setItem("user", JSON.stringify(mockUser))
-      router.push("/dashboard")
+      if (data.status === "success" && data.user) {
+        // Store the complete user data from API response
+        localStorage.setItem("user", JSON.stringify(data.user))
+        router.push("/dashboard")
+      } else {
+        throw new Error("Invalid email or password")
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed")
     } finally {
@@ -135,16 +146,15 @@ export default function LoginPage() {
           </CardContent>
         </Card>
 
-        {/* Demo Credentials */}
         <Card className="bg-blue-50 dark:bg-blue-950 border-blue-200 dark:border-blue-800">
           <CardContent className="p-4">
             <p className="text-sm text-blue-800 dark:text-blue-200 mb-2">
               <strong>Demo Credentials:</strong>
             </p>
             <p className="text-xs text-blue-700 dark:text-blue-300">
-              Email: demo@cleanlify.com
+              Email: tasemgt@gmail.com
               <br />
-              Password: demo123
+              Password: (use your API password)
             </p>
           </CardContent>
         </Card>

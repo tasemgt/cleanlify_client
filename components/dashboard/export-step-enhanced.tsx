@@ -7,6 +7,16 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Input } from "@/components/ui/input"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Download, RotateCcw, CheckCircle, BarChart3, ChevronLeft, ChevronRight, Search, X } from "lucide-react"
 
 interface ExportStepProps {
@@ -15,8 +25,20 @@ interface ExportStepProps {
     cleanedData: any[]
     originalData: any[]
     status: string
+    acceptance_ratio: number
+    useCategory?: boolean
     summary: Array<{
       column: string
+      num_of_before_unique: number
+      num_of_after_unique: number
+      num_of_clusters: number
+      num_of_majority: number
+      total_num_of_single: number
+      num_of_spell_check: number
+      num_of_global_manual: number
+      num_of_gkg: number
+      num_of_llm: number
+      acceptance_ratio: number
       total_values: number
       manual_corrections: number
     }>
@@ -39,6 +61,9 @@ export function ExportStepEnhanced({
   const [currentPage, setCurrentPage] = useState(0)
   const [activeTab, setActiveTab] = useState("cleaned")
   const [searchTerm, setSearchTerm] = useState("")
+  const [showSaveDialog, setShowSaveDialog] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [cleaningDetailsSaved, setCleaningDetailsSaved] = useState(false)
   const itemsPerPage = 10
 
   const totalCorrections = useMemo(() => {
@@ -53,13 +78,14 @@ export function ExportStepEnhanced({
     return activeTab === "cleaned" ? cleaningData.cleanedData : cleaningData.originalData
   }, [activeTab, cleaningData.cleanedData, cleaningData.originalData])
 
-  // Filter data based on search term
   const filteredData = useMemo(() => {
     if (!searchTerm.trim() || !currentData) return currentData
 
     return currentData.filter((row) => {
       return Object.values(row).some((value) =>
-        String(value || "").toLowerCase().includes(searchTerm.toLowerCase())
+        String(value || "")
+          .toLowerCase()
+          .includes(searchTerm.toLowerCase()),
       )
     })
   }, [currentData, searchTerm])
@@ -71,7 +97,6 @@ export function ExportStepEnhanced({
 
   const totalPages = Math.ceil((filteredData?.length || 0) / itemsPerPage)
 
-  // Reset to first page when search term changes
   const handleSearchChange = (value: string) => {
     setSearchTerm(value)
     setCurrentPage(0)
@@ -80,6 +105,71 @@ export function ExportStepEnhanced({
   const clearSearch = () => {
     setSearchTerm("")
     setCurrentPage(0)
+  }
+
+  const saveCleaningDetails = async () => {
+    console.log("Saving cleaning details... ", cleaningData);
+    setSaving(true)
+    try {
+      const userData = localStorage.getItem("user")
+      const user = userData ? JSON.parse(userData) : null
+
+      if (!user || !user.id) {
+        console.error("User not found in localStorage")
+        return
+      }
+
+      const payload = {
+        user_id: user.id,
+        file_name: fileName,
+        cleaning_mode: cleaningData.useCategory ?  "category" : "column",
+        acceptance_ratio: cleaningData.acceptance_ratio,
+        summaries:
+          cleaningData.summary?.map((item) => ({
+            column: item.column,
+            total_values: item.total_values,
+            num_of_before_unique: item.num_of_before_unique,
+            num_of_after_unique: item.num_of_after_unique,
+            manual_corrections: item.manual_corrections,
+            num_of_clusters: item.num_of_clusters,
+            num_of_majority: item.num_of_majority,
+            total_num_of_single: item.total_num_of_single,
+            num_of_spell_check:   item.num_of_spell_check,
+            num_of_global_manual: item.num_of_global_manual,
+            num_of_gkg:          item.num_of_gkg,
+            num_of_llm:         item.num_of_llm,
+            acceptance_ratio: item.acceptance_ratio,
+          })) || [],
+      }
+
+      const response = await fetch("http://localhost:8080/clean_save", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      })
+
+      if (response.ok) {
+        console.log("Cleaning details saved successfully")
+        setCleaningDetailsSaved(true)
+      } else {
+        console.error("Failed to save cleaning details")
+      }
+    } catch (error) {
+      console.error("Error saving cleaning details:", error)
+    } finally {
+      setSaving(false)
+      setShowSaveDialog(false)
+    }
+  }
+
+  const handleDownloadClick = () => {
+    if (!cleaningDetailsSaved) {
+      setShowSaveDialog(true)
+    } else {
+      downloadCSV()
+    }
   }
 
   const downloadCSV = async () => {
@@ -107,6 +197,20 @@ export function ExportStepEnhanced({
     } finally {
       setDownloading(false)
     }
+  }
+
+  const handleDownloadOnly = () => {
+    setShowSaveDialog(false)
+    downloadCSV()
+  }
+
+  const handleSaveAndDownload = async () => {
+    await saveCleaningDetails()
+    downloadCSV()
+  }
+
+  const handleSaveCleaningDetails = async () => {
+    await saveCleaningDetails()
   }
 
   const downloadCleaningMap = () => {
@@ -164,7 +268,6 @@ export function ExportStepEnhanced({
 
   return (
     <div className="space-y-6">
-      {/* Success Summary */}
       <Card className="border-green-200 bg-green-50 dark:bg-green-950 dark:border-green-800">
         <CardContent className="p-6">
           <div className="flex items-center gap-4">
@@ -182,7 +285,6 @@ export function ExportStepEnhanced({
         </CardContent>
       </Card>
 
-      {/* Cleaning Summary */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -202,7 +304,7 @@ export function ExportStepEnhanced({
                     <Badge variant="secondary">{item.total_values}</Badge>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span>Corrections made:</span>
+                    <span>Singular Corrections made:</span>
                     <Badge variant="default">{item.manual_corrections}</Badge>
                   </div>
                 </div>
@@ -212,10 +314,9 @@ export function ExportStepEnhanced({
         </CardContent>
       </Card>
 
-      {/* Data Comparison & Preview */}
       <Card>
         <CardHeader>
-          <CardTitle>Data Comparison & Preview</CardTitle>
+          <CardTitle>Data Comparison & Review</CardTitle>
           <CardDescription>Preview your original and cleaned data</CardDescription>
         </CardHeader>
         <CardContent>
@@ -225,7 +326,6 @@ export function ExportStepEnhanced({
               <TabsTrigger value="original">Original Data</TabsTrigger>
             </TabsList>
 
-            {/* Search Box */}
             <div className="flex items-center gap-2">
               <div className="relative flex-1 max-w-md">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500" />
@@ -276,7 +376,10 @@ export function ExportStepEnhanced({
                       ))
                     ) : (
                       <TableRow>
-                        <TableCell colSpan={Object.keys(currentData?.[0] || {}).length} className="text-center py-8 text-gray-500">
+                        <TableCell
+                          colSpan={Object.keys(currentData?.[0] || {}).length}
+                          className="text-center py-8 text-gray-500"
+                        >
                           {searchTerm ? "No results found for your search" : "No data available"}
                         </TableCell>
                       </TableRow>
@@ -309,7 +412,10 @@ export function ExportStepEnhanced({
                       ))
                     ) : (
                       <TableRow>
-                        <TableCell colSpan={Object.keys(currentData?.[0] || {}).length} className="text-center py-8 text-gray-500">
+                        <TableCell
+                          colSpan={Object.keys(currentData?.[0] || {}).length}
+                          className="text-center py-8 text-gray-500"
+                        >
                           {searchTerm ? "No results found for your search" : "No data available"}
                         </TableCell>
                       </TableRow>
@@ -319,7 +425,6 @@ export function ExportStepEnhanced({
               </div>
             </TabsContent>
 
-            {/* Pagination Controls */}
             {filteredData && filteredData.length > 0 && (
               <div className="flex items-center justify-between">
                 <p className="text-sm text-gray-600">
@@ -370,7 +475,6 @@ export function ExportStepEnhanced({
         </CardContent>
       </Card>
 
-      {/* Action Buttons */}
       <div className="flex flex-col sm:flex-row gap-4 justify-between">
         <div className="flex gap-2">
           {onBack && (
@@ -382,16 +486,45 @@ export function ExportStepEnhanced({
             <RotateCcw className="w-4 h-4 mr-2" />
             Start Over
           </Button>
-          <Button variant="outline" onClick={downloadCleaningMap}>
-            Save Cleaning Map
+          <Button variant="outline" onClick={handleSaveCleaningDetails} disabled={saving || cleaningDetailsSaved}>
+            {cleaningDetailsSaved ? "Cleaning details saved" : saving ? "Saving..." : "Save cleaning details"}
           </Button>
         </div>
 
-        <Button onClick={downloadCSV} disabled={downloading} size="lg" className="bg-green-600 hover:bg-green-700">
+        <Button
+          onClick={handleDownloadClick}
+          disabled={downloading}
+          size="lg"
+          className="bg-green-600 hover:bg-green-700"
+        >
           <Download className="w-4 h-4 mr-2" />
           {downloading ? "Preparing Download..." : "Download Data"}
         </Button>
       </div>
+
+      <AlertDialog open={showSaveDialog} onOpenChange={setShowSaveDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <div className="flex items-center justify-between">
+              <AlertDialogTitle>Congratulations! Your cleaning is complete.</AlertDialogTitle>
+              <Button variant="ghost" size="sm" onClick={() => setShowSaveDialog(false)} className="h-6 w-6 p-0">
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+            <AlertDialogDescription>
+              Do you want to save details of this cleaning process for future analysis?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={handleDownloadOnly} disabled={saving || downloading}>
+              No, just download
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={handleSaveAndDownload} disabled={saving || downloading}>
+              {saving ? "Saving..." : "Yes, save details"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

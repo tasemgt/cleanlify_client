@@ -2,59 +2,126 @@
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Progress } from "@/components/ui/progress"
-import { BarChart3, FileText, TrendingUp, Clock, CheckCircle } from "lucide-react"
-import type { User } from "@/app/page"
+import { Button } from "@/components/ui/button"
+import { BarChart3, FileText, TrendingUp, Clock, CheckCircle, RefreshCw } from "lucide-react"
+import { useRouter } from "next/navigation"
+import { useState } from "react"
+
+interface User {
+  id: number
+  name: string
+  email: string
+  job_title: string
+  location: string
+  organisation: string
+  bio: string
+  create_date: string
+  member_plan: string
+  profession: string
+  avatar?: string
+  cleans?: Array<{
+    file_name: string
+    cleaning_mode: string
+    acceptance_ratio: number
+    clean_date: string
+    summaries: Array<{
+      column: string
+      total_values: number
+      num_of_before_unique: number
+      num_of_after_unique: number
+      manual_corrections: number
+      num_of_clusters: number
+      num_of_majority: number
+      total_num_of_single: number
+      num_of_spell_check: number
+      num_of_global_manual: number
+      num_of_gkg: number
+      num_of_llm: number
+      acceptance_ratio: number
+    }>
+  }>
+}
 
 interface DashboardOverviewProps {
   user: User
+  onRefresh?: () => Promise<void>
 }
 
-export function DashboardOverview({ user }: DashboardOverviewProps) {
-  // Mock data - in production, this would come from your API
-  const stats = {
-    totalFiles: 24,
-    cleanedFiles: 18,
-    totalRecords: 125000,
-    cleanedRecords: 98500,
-    mostCleanedDomain: "Healthcare",
-    avgCleaningTime: "3.2 min",
-    successRate: 94,
+export function DashboardOverview({ user, onRefresh }: DashboardOverviewProps) {
+  const router = useRouter()
+  const [isRefreshing, setIsRefreshing] = useState(false)
+  const cleans = user.cleans || []
+  const totalFiles = cleans.length
+  const cleanedFiles = cleans.length // All files in cleans array are considered cleaned
+
+  // Calculate average acceptance ratio
+  const avgAcceptanceRatio =
+    cleans.length > 0
+      ? +(cleans.reduce((sum, clean) => sum + clean.acceptance_ratio, 0) / cleans.length).toFixed(2)
+      : 0
+
+  // Calculate total values from all summaries
+  const totalValues = cleans.reduce((total, clean) => {
+    return total + clean.summaries.reduce((sum, summary) => sum + summary.total_values, 0)
+  }, 0)
+
+  // Helper function to calculate time ago
+  const getTimeAgo = (dateString: string) => {
+    const cleanDate = new Date(dateString)
+    const now = new Date()
+    const diffInHours = Math.floor((now.getTime() - cleanDate.getTime()) / (1000 * 60 * 60))
+
+    if (diffInHours < 24) {
+      return `${diffInHours} hour${diffInHours !== 1 ? "s" : ""} ago`
+    } else {
+      const diffInDays = Math.floor(diffInHours / 24)
+      return `${diffInDays} day${diffInDays !== 1 ? "s" : ""} ago`
+    }
   }
 
-  const recentFiles = [
-    {
-      name: "survey_responses_2024.csv",
-      status: "completed",
-      domain: "Healthcare",
-      cleanedAt: "2 hours ago",
-      records: 5420,
-    },
-    {
-      name: "customer_feedback.json",
-      status: "in_progress",
-      domain: "Consumer",
-      cleanedAt: "1 day ago",
-      records: 2100,
-    },
-    { name: "research_data.xlsx", status: "completed", domain: "Education", cleanedAt: "3 days ago", records: 8900 },
-    { name: "market_analysis.csv", status: "failed", domain: "Finance", cleanedAt: "1 week ago", records: 1200 },
-  ]
+  const recentCleans = [...cleans]
+    .sort((a, b) => new Date(b.clean_date).getTime() - new Date(a.clean_date).getTime())
+    .slice(0, 6) // Show up to 6 recent files
 
-  const domainStats = [
-    { domain: "Healthcare", files: 8, percentage: 33 },
-    { domain: "Education", files: 6, percentage: 25 },
-    { domain: "Consumer", files: 4, percentage: 17 },
-    { domain: "Finance", files: 3, percentage: 13 },
-    { domain: "Technology", files: 3, percentage: 12 },
-  ]
+  const handleSeeSummary = (cleanIndex: number) => {
+    // Store the selected clean data in localStorage for the summary page
+    localStorage.setItem(
+      "selectedClean",
+      JSON.stringify({
+        ...cleans[cleanIndex],
+        cleanIndex,
+      }),
+    )
+    router.push("/dashboard/summary")
+  }
+
+  const handleRefreshClick = async () => {
+    if (onRefresh) {
+      setIsRefreshing(true)
+      await onRefresh()
+      setIsRefreshing(false)
+    }
+  }
 
   return (
     <div className="space-y-6">
       {/* Welcome Section */}
-      <div>
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Welcome back, {user.name.split(" ")[0]}!</h1>
-        <p className="text-gray-600 dark:text-gray-300 mt-2">Here's an overview of your data cleaning activities</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Welcome back, {user.name.split(" ")[0]}!</h1>
+          <p className="text-gray-600 dark:text-gray-300 mt-2">Here's an overview of your data cleaning activities</p>
+        </div>
+        {/* Refresh Button */}
+        <Button
+          onClick={handleRefreshClick}
+          disabled={isRefreshing}
+          variant="outline"
+          size="sm"
+          className="flex items-center gap-2 bg-transparent"
+        >
+          <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
+          {isRefreshing ? "Refreshing..." : "Refresh"}
+        </Button>
       </div>
 
       {/* Stats Cards */}
@@ -64,7 +131,7 @@ export function DashboardOverview({ user }: DashboardOverviewProps) {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Total Files</p>
-                <p className="text-3xl font-bold text-gray-900 dark:text-white">{stats.totalFiles}</p>
+                <p className="text-3xl font-bold text-gray-900 dark:text-white">{totalFiles}</p>
               </div>
               <FileText className="h-8 w-8 text-blue-600" />
             </div>
@@ -76,7 +143,7 @@ export function DashboardOverview({ user }: DashboardOverviewProps) {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Cleaned Files</p>
-                <p className="text-3xl font-bold text-green-600">{stats.cleanedFiles}</p>
+                <p className="text-3xl font-bold text-green-600">{cleanedFiles}</p>
               </div>
               <CheckCircle className="h-8 w-8 text-green-600" />
             </div>
@@ -87,10 +154,8 @@ export function DashboardOverview({ user }: DashboardOverviewProps) {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Total Records</p>
-                <p className="text-3xl font-bold text-gray-900 dark:text-white">
-                  {stats.totalRecords.toLocaleString()}
-                </p>
+                <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Total Values</p>
+                <p className="text-3xl font-bold text-gray-900 dark:text-white">{totalValues.toLocaleString()}</p>
               </div>
               <BarChart3 className="h-8 w-8 text-purple-600" />
             </div>
@@ -101,8 +166,8 @@ export function DashboardOverview({ user }: DashboardOverviewProps) {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Success Rate</p>
-                <p className="text-3xl font-bold text-green-600">{stats.successRate}%</p>
+                <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Acceptance Rate</p>
+                <p className="text-3xl font-bold text-green-600">{avgAcceptanceRatio}%</p>
               </div>
               <TrendingUp className="h-8 w-8 text-green-600" />
             </div>
@@ -110,68 +175,58 @@ export function DashboardOverview({ user }: DashboardOverviewProps) {
         </Card>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Recent Files */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Recent Files</CardTitle>
-            <CardDescription>Your latest data cleaning activities</CardDescription>
-          </CardHeader>
-          <CardContent>
+      {/* Recent Files */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Recent Files</CardTitle>
+          <CardDescription>Your latest data cleaning activities</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {recentCleans.length > 0 ? (
             <div className="space-y-4">
-              {recentFiles.map((file, index) => (
-                <div key={index} className="flex items-center justify-between p-3 border rounded-lg">
-                  <div className="flex-1">
-                    <p className="font-medium text-sm">{file.name}</p>
-                    <div className="flex items-center gap-2 mt-1">
-                      <Badge variant="outline" className="text-xs">
-                        {file.domain}
-                      </Badge>
-                      <span className="text-xs text-gray-500">{file.records.toLocaleString()} records</span>
+              {recentCleans.map((clean, index) => {
+                const totalValues = clean.summaries.reduce((sum, summary) => sum + summary.total_values, 0)
+                const cleanIndex = cleans.findIndex(
+                  (c) => c.file_name === clean.file_name && c.clean_date === clean.clean_date,
+                )
+                return (
+                  <div key={index} className="flex items-center justify-between p-4 border rounded-lg">
+                    <div className="flex-1">
+                      <p className="font-medium text-sm">Dataset: {clean.file_name}</p>
+                      <div className="flex items-center gap-2 mt-1">
+                        <Badge variant="outline" className="text-xs">
+                          {clean.cleaning_mode}
+                        </Badge>
+                        <span className="text-xs text-gray-500">{totalValues.toLocaleString()} values</span>
+                        <Badge variant="secondary" className="text-xs">
+                          {+clean.acceptance_ratio.toFixed(2)}% acceptance
+                        </Badge>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="text-right">
+                        <Badge variant="default" className="text-xs">
+                          completed
+                        </Badge>
+                        <p className="text-xs text-gray-500 mt-1">{getTimeAgo(clean.clean_date)}</p>
+                      </div>
+                      <Button size="sm" className="bg-blue-100 hover:bg-blue-200 text-blue-800" variant="outline" onClick={() => handleSeeSummary(cleanIndex)}>
+                        See Summary
+                      </Button>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <Badge
-                      variant={
-                        file.status === "completed"
-                          ? "default"
-                          : file.status === "in_progress"
-                            ? "secondary"
-                            : "destructive"
-                      }
-                      className="text-xs"
-                    >
-                      {file.status.replace("_", " ")}
-                    </Badge>
-                    <p className="text-xs text-gray-500 mt-1">{file.cleanedAt}</p>
-                  </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
-          </CardContent>
-        </Card>
-
-        {/* Domain Statistics */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Domain Distribution</CardTitle>
-            <CardDescription>Files cleaned by research domain</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {domainStats.map((domain, index) => (
-                <div key={index} className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium">{domain.domain}</span>
-                    <span className="text-sm text-gray-500">{domain.files} files</span>
-                  </div>
-                  <Progress value={domain.percentage} className="h-2" />
-                </div>
-              ))}
+          ) : (
+            <div className="text-center py-8 text-gray-500">
+              <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
+              <p>No cleaning activities yet</p>
+              <p className="text-sm">Start by uploading and cleaning your first file</p>
             </div>
-          </CardContent>
-        </Card>
-      </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Quick Actions */}
       <Card>

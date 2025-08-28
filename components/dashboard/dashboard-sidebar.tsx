@@ -2,9 +2,10 @@
 
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import { Upload, User, LogOut, Home } from "lucide-react"
+import { Upload, User, LogOut, Home, Paintbrush } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
+import Image from "next/image"
 
 interface DashboardSidebarProps {
   currentPage: "dashboard" | "cleanlify" | "profile"
@@ -13,7 +14,7 @@ interface DashboardSidebarProps {
 
 const navigation = [
   { name: "Dashboard", href: "/dashboard", icon: Home, key: "dashboard" },
-  { name: "Cleanlify", href: "/cleanlify", icon: Upload, key: "cleanlify" },
+  { name: "Cleanlify", href: "/cleanlify", icon: Paintbrush, key: "cleanlify" },
   { name: "Profile", href: "/profile", icon: User, key: "profile" },
 ]
 
@@ -23,9 +24,12 @@ export function DashboardSidebar({ currentPage, onLogout }: DashboardSidebarProp
   return (
     <div className="hidden lg:fixed lg:inset-y-0 lg:z-50 lg:flex lg:w-64 lg:flex-col">
       <div className="flex grow flex-col gap-y-5 overflow-y-auto bg-white dark:bg-gray-800 px-6 pb-4 shadow-sm border-r border-gray-200 dark:border-gray-700">
+        <Image src="/logo.png" alt="University of Manchester" width={180} height={60} className="mt-2" />
         <div className="flex h-16 shrink-0 items-center">
           <Link href="/dashboard">
-            <h1 className="text-2xl font-bold text-blue-600 cursor-pointer">Cleanlify</h1>
+            <div className="flex flex-col items-start">
+              <h1 className="text-2xl font-bold text-blue-600 cursor-pointer">Cleanlify</h1>
+            </div>
           </Link>
         </div>
 

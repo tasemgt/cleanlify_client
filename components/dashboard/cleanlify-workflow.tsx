@@ -25,6 +25,7 @@ export function CleanlifyWorkflow() {
   // const [selectedDomain, setSelectedDomain] = useState<string>("")
   const [cleaningData, setCleaningData] = useState<CleaningData>({})
   const [rawData, setRawData] = useState<any[]>([])
+  const [filename, setFilename] = useState<string>("")
   const [fileType, setFileType] = useState<string>("")
 
   const progress = (currentStep / steps.length) * 100
@@ -51,10 +52,11 @@ export function CleanlifyWorkflow() {
 
       const data = await response.json()
 
-      console.log("File processed successfully:", data.rawData);
+      console.log("File processed successfully:", data);
 
       setColumns(data.columns)
       setRawData(data.rawData)
+      setFilename(data.filename || file.name)
       setCurrentStep(2)
     } catch (error) {
       console.error("Upload failed:", error)
@@ -69,6 +71,7 @@ export function CleanlifyWorkflow() {
     console.log("Selected columns:", selectedCols)
 
     const payload = {
+      filename,
       rawData,
       selectedColumns: selectedCols,
       useCategory,
@@ -111,7 +114,6 @@ export function CleanlifyWorkflow() {
   }
 
   const handleCleaningContinue = (cleaningMappings: CleaningData) => {
-    // console.log("Cleaning mappings:", cleaningMappings);
     setCleaningData(cleaningMappings)
     setCurrentStep(4)
   }

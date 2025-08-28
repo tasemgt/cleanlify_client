@@ -29,6 +29,7 @@ export default function ProfilePageRoute() {
 
   const handleLogout = () => {
     localStorage.removeItem("user")
+    localStorage.removeItem("selectedClean")
     router.push("/login")
   }
 

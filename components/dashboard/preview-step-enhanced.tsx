@@ -565,8 +565,8 @@ export function PreviewStepEnhanced({
         <Alert>
           <Info className="h-4 w-4" />
           <AlertDescription>
-            <strong>Categorical columns detected!</strong> We recommend you process your data based on the suggested
-            important categorical column "{importantCategoryColumn.name}" to get the best results from this process.
+            <strong>Categorical columns detected!</strong> We recommend you check these columns for instance, 
+            "{importantCategoryColumn.name}" to get the best results from this process.
           </AlertDescription>
         </Alert>
       )}

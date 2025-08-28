@@ -6,11 +6,24 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { User, Calendar, Briefcase, Edit, Save, X } from "lucide-react"
-import type { User as UserType } from "@/app/page"
+import { Calendar, Briefcase, Edit, Save, X } from "lucide-react"
+
+interface UserProfile {
+  id: number
+  name: string
+  email: string
+  job_title: string
+  location: string
+  organisation: string
+  bio: string
+  create_date: string
+  member_plan: string
+  profession: string
+  avatar?: string
+}
 
 interface ProfilePageProps {
-  user: UserType
+  user: UserProfile
 }
 
 export function ProfilePage({ user }: ProfilePageProps) {
@@ -18,10 +31,10 @@ export function ProfilePage({ user }: ProfilePageProps) {
   const [formData, setFormData] = useState({
     name: user.name,
     email: user.email,
-    title: "Senior Research Analyst",
-    organization: "University Research Center",
-    location: "San Francisco, CA",
-    bio: "Passionate researcher with 8+ years of experience in data analysis and survey research. Specialized in healthcare and education domains.",
+    title: user.job_title,
+    organization: user.organisation,
+    location: user.location,
+    bio: user.bio,
   })
 
   const handleSave = () => {
@@ -33,10 +46,10 @@ export function ProfilePage({ user }: ProfilePageProps) {
     setFormData({
       name: user.name,
       email: user.email,
-      title: "Senior Research Analyst",
-      organization: "University Research Center",
-      location: "San Francisco, CA",
-      bio: "Passionate researcher with 8+ years of experience in data analysis and survey research. Specialized in healthcare and education domains.",
+      title: user.job_title,
+      organization: user.organisation,
+      location: user.location,
+      bio: user.bio,
     })
     setIsEditing(false)
   }
@@ -240,15 +253,17 @@ export function ProfilePage({ user }: ProfilePageProps) {
             <CardContent className="space-y-4">
               <div className="flex items-center space-x-2">
                 <Calendar className="h-4 w-4 text-gray-400" />
-                <span className="text-sm text-gray-600 dark:text-gray-400">Joined December 2023</span>
-              </div>
-              <div className="flex items-center space-x-2">
-                <User className="h-4 w-4 text-gray-400" />
-                <span className="text-sm text-gray-600 dark:text-gray-400">Premium Member</span>
+                <span className="text-sm text-gray-600 dark:text-gray-400">
+                  Joined {new Date(user.create_date).toLocaleDateString("en-US", { month: "long", year: "numeric" })}
+                </span>
               </div>
               <div className="flex items-center space-x-2">
                 <Briefcase className="h-4 w-4 text-gray-400" />
-                <span className="text-sm text-gray-600 dark:text-gray-400">Research Professional</span>
+                <span className="text-sm text-gray-600 dark:text-gray-400">{user.member_plan}</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <Briefcase className="h-4 w-4 text-gray-400" />
+                <span className="text-sm text-gray-600 dark:text-gray-400">{user.profession}</span>
               </div>
             </CardContent>
           </Card>
