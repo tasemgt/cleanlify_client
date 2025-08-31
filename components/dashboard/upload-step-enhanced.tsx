@@ -6,15 +6,17 @@ import { useState, useCallback } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Upload, FileText, AlertCircle, CheckCircle } from "lucide-react"
+import { Upload, FileText, AlertCircle, CheckCircle, Info } from "lucide-react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Input } from "@/components/ui/input"
 
 interface UploadStepEnhancedProps {
-  onFileUpload: (file: File, fileType: string) => Promise<void>
+  onFileUpload: (file: File, fileType: string, limit?: number) => Promise<void>
 }
 
 export function UploadStepEnhanced({ onFileUpload }: UploadStepEnhancedProps) {
   const [selectedFileType, setSelectedFileType] = useState<string>("csv")
+  const [rowLimit, setRowLimit] = useState<number | undefined>(undefined)
   const [dragActive, setDragActive] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -58,7 +60,7 @@ export function UploadStepEnhanced({ onFileUpload }: UploadStepEnhancedProps) {
     setError(null)
 
     try {
-      await onFileUpload(file, selectedFileType)
+      await onFileUpload(file, selectedFileType, rowLimit)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to process file.")
     } finally {
@@ -132,6 +134,33 @@ export function UploadStepEnhanced({ onFileUpload }: UploadStepEnhancedProps) {
               ))}
             </SelectContent>
           </Select>
+        </div>
+
+        {/* Row Limit Input Field */}
+        <div className="mb-6">
+          <label htmlFor="row-limit" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            Number of Rows to Process (Optional)
+          </label>
+          <Input
+            id="row-limit"
+            type="number"
+            min="1"
+            max="10000"
+            value={rowLimit || ""}
+            onChange={(e) => {
+              const value = e.target.value
+              setRowLimit(value === "" ? undefined : Math.max(1, Number.parseInt(value) || undefined))
+            }}
+            className="w-full"
+            placeholder="Leave empty to process all rows"
+          />
+          <div className="flex items-start gap-2 mt-2 p-2 bg-amber-50 dark:bg-amber-950 rounded-md">
+            <Info className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
+            <p className="text-xs text-amber-800 dark:text-amber-200">
+              <strong>Tip:</strong> Leave empty to process all rows, or specify a number for faster processing. The
+              larger the number of rows, the longer it takes to process.
+            </p>
+          </div>
         </div>
 
         <div

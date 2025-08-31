@@ -71,13 +71,13 @@ export function CleanSummaryView({ clean }: CleanSummaryViewProps) {
       {/* Column Selection and Info */}
       <Card>
         <CardHeader>
-          <CardTitle>Column Analysis</CardTitle>
-          <CardDescription>Select a column to view detailed cleaning suggestions</CardDescription>
+          <CardTitle>{clean.cleaning_mode.slice(0,1)[0].toUpperCase()+clean.cleaning_mode.slice(1)} Cleaning Analysis</CardTitle>
+          <CardDescription>Select a {clean.cleaning_mode} to view detailed cleaning suggestions</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center gap-4 flex-wrap">
             <div className="flex items-center gap-2">
-              <label className="text-sm font-medium">Column:</label>
+              <label className="text-sm font-medium">{clean.cleaning_mode.slice(0,1)[0].toUpperCase()+clean.cleaning_mode.slice(1)}:</label>
               <Select value={selectedColumn} onValueChange={setSelectedColumn}>
                 <SelectTrigger className="w-48">
                   <SelectValue placeholder="Select column" />

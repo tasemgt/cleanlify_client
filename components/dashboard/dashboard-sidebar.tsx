@@ -28,7 +28,10 @@ export function DashboardSidebar({ currentPage, onLogout }: DashboardSidebarProp
         <div className="flex h-16 shrink-0 items-center">
           <Link href="/dashboard">
             <div className="flex flex-col items-start">
-              <h1 className="text-2xl font-bold text-blue-600 cursor-pointer">Cleanlify</h1>
+              <div className="flex items-center gap-2">
+                <Paintbrush className="font-bold text-blue-600" />
+                <h1 className="text-2xl font-bold text-blue-600 cursor-pointer">Cleanlify</h1>
+              </div>
             </div>
           </Link>
         </div>
