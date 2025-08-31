@@ -128,7 +128,7 @@ export function LoginPage({ onLogin, onSwitchToSignup }: LoginPageProps) {
         </Card>
 
         {/* Demo Credentials */}
-        <Card className="bg-blue-50 dark:bg-blue-950 border-blue-200 dark:border-blue-800">
+        {/* <Card className="bg-blue-50 dark:bg-blue-950 border-blue-200 dark:border-blue-800">
           <CardContent className="p-4">
             <p className="text-sm text-blue-800 dark:text-blue-200 mb-2">
               <strong>Demo Credentials:</strong>
@@ -139,7 +139,7 @@ export function LoginPage({ onLogin, onSwitchToSignup }: LoginPageProps) {
               Password: demo123
             </p>
           </CardContent>
-        </Card>
+        </Card> */}
       </div>
     </div>
   )

@@ -236,7 +236,7 @@ export function DashboardOverview({ user, onRefresh }: DashboardOverviewProps) {
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="p-4 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer">
+            <div className="p-4 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer" onClick={() => router.push("/cleanlify")}>
               <FileText className="h-8 w-8 text-blue-600 mb-2" />
               <h3 className="font-medium">Upload New File</h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">Start cleaning a new dataset</p>
