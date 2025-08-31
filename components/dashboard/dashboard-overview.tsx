@@ -154,7 +154,7 @@ export function DashboardOverview({ user, onRefresh }: DashboardOverviewProps) {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Total Values</p>
+                <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Total Cleaned Texts</p>
                 <p className="text-3xl font-bold text-gray-900 dark:text-white">{totalValues.toLocaleString()}</p>
               </div>
               <BarChart3 className="h-8 w-8 text-purple-600" />
@@ -166,7 +166,7 @@ export function DashboardOverview({ user, onRefresh }: DashboardOverviewProps) {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Acceptance Rate</p>
+                <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Total Mean Acceptance Rate</p>
                 <p className="text-3xl font-bold text-green-600">{avgAcceptanceRatio}%</p>
               </div>
               <TrendingUp className="h-8 w-8 text-green-600" />
@@ -186,6 +186,11 @@ export function DashboardOverview({ user, onRefresh }: DashboardOverviewProps) {
             <div className="space-y-4">
               {recentCleans.map((clean, index) => {
                 const totalValues = clean.summaries.reduce((sum, summary) => sum + summary.total_values, 0)
+                const totalBeforeUnique = clean.summaries.reduce(
+                  (sum, summary) => sum + summary.num_of_before_unique,
+                  0,
+                )
+                const totalAfterUnique = clean.summaries.reduce((sum, summary) => sum + summary.num_of_after_unique, 0)
                 const cleanIndex = cleans.findIndex(
                   (c) => c.file_name === clean.file_name && c.clean_date === clean.clean_date,
                 )
@@ -199,8 +204,17 @@ export function DashboardOverview({ user, onRefresh }: DashboardOverviewProps) {
                         </Badge>
                         <span className="text-xs text-gray-500">{totalValues.toLocaleString()} values</span>
                         <Badge variant="secondary" className="text-xs">
-                          {+clean.acceptance_ratio.toFixed(2)}% acceptance
+                          {+clean.acceptance_ratio.toFixed(2)}% MAR
                         </Badge>
+                      </div>
+                      <div className="flex items-center gap-2 mt-2">
+                        <span className="text-xs text-gray-600 dark:text-gray-400">
+                          Before: {totalBeforeUnique.toLocaleString()} unique
+                        </span>
+                        <span className="text-xs text-gray-400">→</span>
+                        <span className="text-xs text-gray-600 dark:text-gray-400">
+                          After: {totalAfterUnique.toLocaleString()} unique
+                        </span>
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
@@ -236,7 +250,7 @@ export function DashboardOverview({ user, onRefresh }: DashboardOverviewProps) {
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="p-4 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer">
+            <div className="p-4 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer" onClick={() => router.push("/cleanlify")}>
               <FileText className="h-8 w-8 text-blue-600 mb-2" />
               <h3 className="font-medium">Upload New File</h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">Start cleaning a new dataset</p>

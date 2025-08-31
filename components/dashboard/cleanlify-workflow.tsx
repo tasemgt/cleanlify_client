@@ -9,6 +9,7 @@ import { PreviewStepEnhanced } from "./preview-step-enhanced"
 import { CleaningStepEnhanced } from "./cleaning-step-enhanced"
 import { ExportStepEnhanced } from "./export-step-enhanced"
 import type { ColumnInfo, CleaningData } from "@/app/page"
+import { Paintbrush } from "lucide-react"
 
 const steps = [
   { id: 1, title: "Upload", description: "Upload your data file" },
@@ -30,9 +31,11 @@ export function CleanlifyWorkflow() {
 
   const progress = (currentStep / steps.length) * 100
 
-  const handleFileUpload = async (file: File, uploadedFileType: string) => {
+  const handleFileUpload = async (file: File, uploadedFileType: string, rowLimit: number) => {
     setUploadedFile(file)
     setFileType(uploadedFileType)
+
+    const limitQuery = rowLimit ? rowLimit : 'all';
 
     // Call API to process file
     try {
@@ -41,7 +44,7 @@ export function CleanlifyWorkflow() {
       // formData.append("fileType", uploadedFileType)
 
       // Mock API call - replace with your actual API endpoint
-      const response = await fetch("http://localhost:8080/analyze?limit=100", {
+      const response = await fetch(`http://localhost:8080/analyze?limit=${limitQuery}`, {
         method: "POST",
         body: formData,
       })
@@ -139,7 +142,12 @@ export function CleanlifyWorkflow() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Cleanlify</h1>
+        <div className="flex items-center gap-2">
+          <Paintbrush className="font-bold" />
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
+            Cleanlify
+          </h1>
+        </div>
         <p className="text-gray-600 dark:text-gray-300 mt-2">Clean your data with our intelligent workflow</p>
       </div>
 
